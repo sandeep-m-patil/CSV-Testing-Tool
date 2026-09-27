@@ -1,7 +1,7 @@
 import type { GeneratedCase } from "../../test-execution/types";
 import type { ClassifiedField, DiscoveredControl } from "../fields";
 import { findByRole } from "../fields";
-import { buildAuthScenarios } from "./auth";
+import { buildAuthScenarios, type AuthCredential } from "./auth";
 import {
   buildCartScenarios,
   buildNavigationScenarios,
@@ -16,6 +16,8 @@ export interface ScenarioTarget {
   pageName: string;
   fields: ClassifiedField[];
   controls: DiscoveredControl[];
+  /** Module credential, so login cases use a real account instead of placeholders. */
+  credential?: AuthCredential;
 }
 
 /** An auth form is recognised by an identifier field paired with a password field. */
@@ -29,13 +31,13 @@ export function isAuthForm(fields: ClassifiedField[]): boolean {
  * return nothing and the page would fall back to a bare smoke case.
  */
 export function buildScenariosForPage(target: ScenarioTarget): GeneratedCase[] {
-  const { pageUrl, pageName, fields, controls } = target;
+  const { pageUrl, pageName, fields, controls, credential } = target;
 
   if (hasAddToCart(controls)) {
     return buildProductDetailScenarios(pageUrl, pageName, controls);
   }
   if (isAuthForm(fields)) {
-    return buildAuthScenarios(pageUrl);
+    return buildAuthScenarios(pageUrl, credential);
   }
   if (looksLikeCart(controls)) {
     return buildCartScenarios(pageUrl, pageName, controls);

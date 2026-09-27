@@ -288,6 +288,48 @@ export class DiscoveryStore {
     );
   }
 
+  /**
+   * Refreshes a previously generated case in place. Only cases whose `source` is
+   * "generated" may be passed here, so a hand-authored case is never overwritten.
+   * Generation is therefore repeatable: adding a credential and re-discovering
+   * updates the stored steps instead of leaving stale values behind.
+   */
+  async reconcileTestCase(
+    testCaseId: string,
+    input: {
+      description: string | null;
+      precondition: string | null;
+      testData: string | null;
+      expectedResult: string | null;
+      steps: Array<{ order: number; action: string; target: string; value?: string; stepType: string; expect?: unknown }>;
+    },
+  ): Promise<void> {
+    await this.db
+      .update(testCases)
+      .set({
+        description: input.description,
+        precondition: input.precondition,
+        testData: input.testData,
+        expectedResult: input.expectedResult,
+        steps: input.steps,
+        updatedAt: new Date(),
+      })
+      .where(eq(testCases.id, testCaseId));
+
+    // Kept in step with the JSONB column, which is what the executor executes.
+    await this.db.delete(testCaseSteps).where(eq(testCaseSteps.testCaseId, testCaseId));
+    await this.db.insert(testCaseSteps).values(
+      input.steps.map((step) => ({
+        testCaseId,
+        order: step.order,
+        action: step.action,
+        target: step.target,
+        value: step.value ?? null,
+        stepType: step.stepType,
+      })),
+    );
+  }
+
   private moduleSlug: string | null = null;
 
   /** Uppercase alphanumeric prefix derived from the module name, e.g. "Material Approval" -> "MATERIAL-APPR". */

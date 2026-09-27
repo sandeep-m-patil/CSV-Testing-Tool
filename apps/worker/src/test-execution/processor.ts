@@ -5,7 +5,7 @@ import { getDb } from "@repo/db";
 import { createChildLogger, createStorage, CredentialCrypto, type TestRunJobData } from "@repo/core";
 import { testRunResults, testRuns, testCases, credentials } from "@repo/db/schema";
 import { env } from "../env";
-import { executeCase, type ExecutableCase, type RunContext } from "./executor";
+import { executeCase, type ExecutableCase, type RunContext, type RunCredential } from "./executor";
 
 const log = createChildLogger({ scope: "test-run-processor" });
 
@@ -24,7 +24,7 @@ export async function processTestRunJob(job: Job<TestRunJobData>): Promise<void>
     return;
   }
 
-  const secrets = await loadSecrets(moduleId);
+  const { secrets, credential } = await loadCredentials(moduleId);
   const browser = await chromium.launch({ headless: env.BROWSER_HEADLESS });
   const storage = createStorage({
     driver: env.STORAGE_DRIVER,
@@ -37,6 +37,7 @@ export async function processTestRunJob(job: Job<TestRunJobData>): Promise<void>
     moduleId,
     runId: testRunId,
     secrets,
+    credential,
     timeoutMs: 0,
     log: (message) => log.warn({ moduleId, testRunId }, message),
   };
@@ -117,19 +118,30 @@ async function loadCases(moduleId: string): Promise<ExecutableCase[]> {
   }));
 }
 
-async function loadSecrets(moduleId: string): Promise<string[]> {
+/**
+ * Reads the module's stored credentials. `secrets` is every value that must be
+ * masked out of screenshots; `credential` is the one login the generated cases
+ * are written against, matching the role the module was discovered with.
+ */
+async function loadCredentials(
+  moduleId: string,
+): Promise<{ secrets: string[]; credential: RunCredential | undefined }> {
   const rows = await getDb().select().from(credentials).where(eq(credentials.moduleId, moduleId));
   const crypto = new CredentialCrypto();
   const secrets: string[] = [];
+  let credential: RunCredential | undefined;
 
   for (const row of rows) {
     secrets.push(row.username);
     try {
       const decrypted = crypto.decryptCredentials(moduleId, row.secretData);
-      if (decrypted?.password) secrets.push(decrypted.password);
+      if (decrypted?.password) {
+        secrets.push(decrypted.password);
+        credential ??= { username: row.username, password: decrypted.password };
+      }
     } catch {
       log.warn({ moduleId, role: row.role }, "credential decryption failed during test run");
     }
   }
-  return secrets;
+  return { secrets, credential };
 }

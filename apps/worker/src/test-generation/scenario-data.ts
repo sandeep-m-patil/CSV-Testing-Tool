@@ -3,6 +3,15 @@
 export const VALID_EMAIL = "demo@autotest.dev";
 export const VALID_PASSWORD = "demo1234";
 export const UNREGISTERED_EMAIL = "nobody@nowhere.invalid";
+/** RFC 2606 reserved TLD, so the derived address can never be a real account. */
+export const UNREGISTERED_DOMAIN = "nowhere.invalid";
+/**
+ * Tokens a generated case stores in place of a real secret. The executor swaps
+ * them for the module's stored credential at run time, so passwords never sit
+ * in the database, an API response or a CSV export in plaintext.
+ */
+export const USERNAME_TOKEN = "{{username}}";
+export const PASSWORD_TOKEN = "{{password}}";
 export const INVALID_EMAIL = "not-an-email";
 export const MISSING_USERNAME_EMAIL = "@gmail.com";
 export const MISSING_DOMAIN_EMAIL = "user@";

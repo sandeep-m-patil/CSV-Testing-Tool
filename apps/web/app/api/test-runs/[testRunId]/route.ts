@@ -1,9 +1,10 @@
-import { asc, eq } from "drizzle-orm";
+import { and, asc, eq, isNotNull } from "drizzle-orm";
 import { testRunResults, testRuns, testCases, modules } from "@repo/db/schema";
 import { AppError } from "@repo/core";
-import { ok, route } from "@/lib/api";
+import { noContent, ok, route } from "@/lib/api";
 import { requireSession } from "@/lib/auth/get-session";
 import { requireModuleAccess } from "@/lib/auth/guards";
+import { assertSameOrigin } from "@/lib/csrf";
 import { db } from "@/lib/db";
 import { getStorage } from "@/lib/storage";
 
@@ -54,4 +55,42 @@ export const GET = route(async (_request, context: Params) => {
       screenshotUrl: row.screenshotKey ? storage.getPublicUrl(row.screenshotKey) : null,
     })),
   });
+});
+
+/**
+ * Deletes a run, its per-case results, and the screenshot files those results
+ * reference. Screenshot keys are read before the rows are removed because the
+ * result cascade takes the key column with it.
+ */
+export const DELETE = route(async (request, context: Params) => {
+  assertSameOrigin(request);
+  const session = await requireSession();
+  const { testRunId } = await context.params;
+
+  const [run] = await db.select().from(testRuns).where(eq(testRuns.id, testRunId!)).limit(1);
+  if (!run) {
+    throw new AppError("NOT_FOUND", "Test run not found", 404);
+  }
+  await requireModuleAccess(run.moduleId, session);
+
+  const screenshotKeys = (
+    await db
+      .select({ screenshotKey: testRunResults.screenshotKey })
+      .from(testRunResults)
+      .where(and(eq(testRunResults.testRunId, run.id), isNotNull(testRunResults.screenshotKey)))
+  )
+    .map((row) => row.screenshotKey)
+    .filter((key): key is string => typeof key === "string" && key.length > 0);
+
+  // test_run_results is removed by the foreign-key cascade on test_runs.
+  await db.delete(testRuns).where(eq(testRuns.id, run.id));
+
+  // Best effort: the run is already gone, so a storage failure must not surface
+  // as a failed delete. Local driver uses `force`, S3 delete is idempotent.
+  const storage = getStorage();
+  await Promise.all(
+    screenshotKeys.map((key) => storage.delete(key).catch(() => undefined)),
+  );
+
+  return noContent();
 });

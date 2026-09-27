@@ -1,7 +1,7 @@
 "use client";
 
-import { useParams, useSearchParams } from "next/navigation";
-import { Suspense, useState } from "react";
+import { useParams, useRouter, useSearchParams } from "next/navigation";
+import { Suspense, useCallback, useEffect, useState } from "react";
 import { CheckCircle2, Loader2, XCircle } from "lucide-react";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
@@ -9,11 +9,17 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useModuleDetail, useTestCases, useTestRun, useTestRuns, type TestRunSummary } from "@/features/hooks";
 import { ModuleNav } from "@/features/modules/module-nav";
+import { DeleteTestRunButton } from "@/features/test-runs/delete-test-run-button";
+import { formatDateTime } from "@/features/test-runs/format";
 import { RunTestsButton } from "@/features/test-runs/run-tests-button";
 import { RunTotals, TestResultGrid } from "@/features/test-runs/test-result-grid";
 import { TestRunReport } from "@/features/test-runs/test-run-report";
 
 type ViewMode = "grid" | "report";
+
+function pathnameFor(moduleId: string): string {
+  return `/modules/${moduleId}/test-runs`;
+}
 
 function runStatusLabel(run: TestRunSummary): string {
   if (run.status === "QUEUED") return "Queued - waiting for the worker to pick it up";
@@ -33,16 +39,42 @@ export default function ModuleTestRunsPage() {
 function TestRunsView() {
   const params = useParams<{ moduleId: string }>();
   const search = useSearchParams();
+  const router = useRouter();
   const moduleId = params.moduleId;
   const requestedRun = search.get("run");
 
   const { data: detail, isLoading } = useModuleDetail(moduleId);
   const { data: runs } = useTestRuns(moduleId);
   const { data: testCases } = useTestCases(moduleId);
-  const [selectedRunId, setSelectedRunId] = useState<string | null>(requestedRun);
   const [view, setView] = useState<ViewMode>("grid");
-  const activeRunId = selectedRunId ?? runs?.[0]?.id ?? null;
+
+  // The active run lives in the URL so a reload, share or back/forward keeps
+  // the same run selected.
+  const activeRunId = requestedRun ?? runs?.[0]?.id ?? null;
   const { data: runData, isLoading: runLoading } = useTestRun(activeRunId);
+
+  useEffect(() => {
+    if (requestedRun || !activeRunId) return;
+    const next = new URLSearchParams(search.toString());
+    next.set("run", activeRunId);
+    router.replace(`${pathnameFor(moduleId)}?${next.toString()}`, { scroll: false });
+  }, [requestedRun, activeRunId, moduleId, router, search]);
+
+  const selectRun = useCallback(
+    (runId: string) => {
+      const next = new URLSearchParams(search.toString());
+      next.set("run", runId);
+      router.replace(`${pathnameFor(moduleId)}?${next.toString()}`, { scroll: false });
+    },
+    [moduleId, router, search],
+  );
+
+  const onRunDeleted = useCallback(() => {
+    // Drop the ?run= param so the view falls back to the newest remaining run.
+    const next = new URLSearchParams(search.toString());
+    next.delete("run");
+    router.replace(`${pathnameFor(moduleId)}${next.size > 0 ? `?${next.toString()}` : ""}`, { scroll: false });
+  }, [moduleId, router, search]);
 
   if (isLoading) return <Skeleton className="mx-auto my-6 h-96 max-w-6xl rounded-xl" />;
 
@@ -78,17 +110,26 @@ function TestRunsView() {
       )}
 
       {(runs?.length ?? 0) > 0 && (
-        <Tabs value={activeRunId ?? undefined} onValueChange={setSelectedRunId}>
+        <Tabs value={activeRunId ?? undefined} onValueChange={selectRun}>
           <TabsList className="no-print flex-wrap">
             {runs!.map((run) => (
-              <TabsTrigger key={run.id} value={run.id}>
-                {run.status === "COMPLETED" ? <CheckCircle2 className="mr-1.5 h-3.5 w-3.5 text-emerald-500" /> : null}
-                {run.status === "FAILED" ? <XCircle className="mr-1.5 h-3.5 w-3.5 text-red-500" /> : null}
-                {run.status === "RUNNING" || run.status === "QUEUED" ? (
-                  <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
-                ) : null}
-                {new Date(run.createdAt).toLocaleString()}
-              </TabsTrigger>
+              <div key={run.id} className="group/run relative inline-flex items-center">
+                <TabsTrigger value={run.id} className="pr-8">
+                  {run.status === "COMPLETED" ? <CheckCircle2 className="mr-1.5 h-3.5 w-3.5 text-emerald-500" /> : null}
+                  {run.status === "FAILED" ? <XCircle className="mr-1.5 h-3.5 w-3.5 text-red-500" /> : null}
+                  {run.status === "RUNNING" || run.status === "QUEUED" ? (
+                    <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
+                  ) : null}
+                  {formatDateTime(run.createdAt)}
+                </TabsTrigger>
+                <DeleteTestRunButton
+                  testRunId={run.id}
+                  moduleId={moduleId}
+                  runDate={run.createdAt}
+                  onDeleted={onRunDeleted}
+                  className="absolute right-1 h-6 w-6 opacity-0 transition-opacity focus-visible:opacity-100 group-hover/run:opacity-100 data-[state=active]:opacity-100"
+                />
+              </div>
             ))}
           </TabsList>
 

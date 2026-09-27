@@ -23,15 +23,46 @@ export interface CaseOutcome {
   screenshotKey: string | null;
 }
 
+export interface RunCredential {
+  username: string;
+  password: string | null;
+}
+
 export interface RunContext {
   browser: Browser;
   storage: StorageProvider;
   moduleId: string;
   runId: string;
   secrets: string[];
+  /** Substituted into generated steps so stored steps never contain a secret. */
+  credential?: RunCredential;
   timeoutMs: number;
   /** Surfaces non-fatal capture problems; evidence failures must never be silent. */
   log?: (message: string) => void;
+}
+
+const USERNAME_TOKEN = "{{username}}";
+const PASSWORD_TOKEN = "{{password}}";
+
+/**
+ * Replaces credential tokens in a step value. Generated cases store
+ * `{{username}}`/`{{password}}` instead of the real secret, so tokens are
+ * resolved here, at run time, from the module's decrypted credential. A case
+ * that still holds a token after substitution means no credential was stored,
+ * which must fail loudly rather than typing a literal `{{password}}`.
+ */
+function resolveValue(raw: string | null | undefined, credential?: RunCredential): string {
+  const value = raw ?? "";
+  if (!value.includes(USERNAME_TOKEN) && !value.includes(PASSWORD_TOKEN)) return value;
+
+  const username = credential?.username;
+  const password = credential?.password;
+  if (!username || !password) {
+    throw new Error(
+      "Test case needs a stored credential but the module has none. Add one in Credentials & Data, then re-generate.",
+    );
+  }
+  return value.split(USERNAME_TOKEN).join(username).split(PASSWORD_TOKEN).join(password);
 }
 
 const NAVIGATION_TIMEOUT_MS = 20000;
@@ -47,7 +78,7 @@ export async function executeCase(ctx: RunContext, testCase: ExecutableCase, ord
   try {
     for (const step of testCase.steps) {
       if (step.stepType === "verify") continue;
-      await performStep(page, step);
+      await performStep(page, step, ctx.credential);
     }
     const finalStep = lastVerifyStep(testCase.steps);
     if (!finalStep?.expect) {
@@ -79,19 +110,19 @@ export async function executeCase(ctx: RunContext, testCase: ExecutableCase, ord
   }
 }
 
-async function performStep(page: Page, step: ExecutableStep): Promise<void> {
+async function performStep(page: Page, step: ExecutableStep, credential?: RunCredential): Promise<void> {
   switch (step.action) {
     case "GOTO":
       await page.goto(step.target, { waitUntil: "domcontentloaded", timeout: NAVIGATION_TIMEOUT_MS });
       return;
     case "FILL": {
       const locator = await waitForLocator(page, step.target);
-      await locator.fill(step.value ?? "");
+      await locator.fill(resolveValue(step.value, credential));
       return;
     }
     case "PRESS": {
       const locator = await waitForLocator(page, step.target);
-      await locator.press(step.value ?? "Enter");
+      await locator.press(resolveValue(step.value, credential) || "Enter");
       await page.waitForLoadState("domcontentloaded").catch(() => undefined);
       await page.waitForTimeout(SETTLE_TIMEOUT_MS);
       return;

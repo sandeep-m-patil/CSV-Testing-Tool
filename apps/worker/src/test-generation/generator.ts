@@ -23,34 +23,72 @@ export async function generateTestCases(ctx: DiscoveryContext): Promise<number> 
   const visited = new Set(actions.map((action) => action.pageId));
   let count = 0;
 
-  // Re-running discovery must not duplicate cases that a previous run already
-  // generated for this module, so existing names are treated as the dedup key.
-  const existingNames = new Set(
-    (await ctx.db.select({ name: testCases.name }).from(testCases).where(eq(testCases.moduleId, ctx.moduleId))).map(
-      (row) => row.name,
-    ),
+  // Re-running discovery must not duplicate cases a previous run generated, so
+  // the name is the dedup key. A match is *refreshed* rather than skipped:
+  // skipping would leave steps holding values from the earlier generation (for
+  // example demo credentials) after the module's real credential was added.
+  const existing = new Map(
+    (
+      await ctx.db
+        .select({ id: testCases.id, name: testCases.name, source: testCases.source, steps: testCases.steps, testData: testCases.testData, expectedResult: testCases.expectedResult, precondition: testCases.precondition, description: testCases.description })
+        .from(testCases)
+        .where(eq(testCases.moduleId, ctx.moduleId))
+    ).map((row) => [row.name, row]),
   );
 
   for (const page of pages) {
     if (!visited.has(page.id)) continue;
     const controls = await loadControls(ctx, page.id);
     const fields = classifyFields(controls);
-    const scenarios = buildScenariosForPage({ pageUrl: page.url, pageName: page.name, fields, controls });
+    // A module may hold several roles; the login matrix is written against the
+    // first one, which is the role the module itself was discovered with.
+    const primary = ctx.credentials[0];
+    const scenarios = buildScenariosForPage({
+      pageUrl: page.url,
+      pageName: page.name,
+      fields,
+      controls,
+      credential: primary ? { username: primary.username, password: primary.password } : undefined,
+    });
     if (scenarios.length === 0) continue;
 
     for (const scenario of scenarios) {
       const name = `${ctx.moduleName} — ${scenario.name}`;
-      if (existingNames.has(name)) continue;
-      existingNames.add(name);
+      const description = `${scenario.description} (auto-generated from ${isAuthForm(fields) ? "auth form" : "form"} analysis on ${page.name}).`;
+      const precondition = ctx.credentials.length > 0 ? "login with role credentials" : null;
+
+      const match = existing.get(name);
+      if (match && match.source !== "generated") {
+        // Hand-authored case: leave it exactly as the author wrote it.
+        continue;
+      }
+
+      if (match) {
+        const unchanged =
+          JSON.stringify(match.steps) === JSON.stringify(scenario.steps) &&
+          match.testData === scenario.testData &&
+          match.expectedResult === scenario.expectedResult &&
+          match.precondition === precondition;
+        if (unchanged) continue;
+        await ctx.store.reconcileTestCase(match.id, {
+          description,
+          precondition,
+          testData: scenario.testData,
+          expectedResult: scenario.expectedResult,
+          steps: scenario.steps,
+        });
+        count += 1;
+        continue;
+      }
 
       await ctx.store.insertTestCase({
         workflowId: undefined,
         name,
-        description: `${scenario.description} (auto-generated from ${isAuthForm(fields) ? "auth form" : "form"} analysis on ${page.name}).`,
+        description,
         type: scenario.type,
         priority: scenario.priority,
         role: ctx.role ?? null,
-        precondition: ctx.credentials.length > 0 ? "login with role credentials" : null,
+        precondition,
         testData: scenario.testData,
         expectedResult: scenario.expectedResult,
         steps: scenario.steps,
@@ -59,7 +97,7 @@ export async function generateTestCases(ctx: DiscoveryContext): Promise<number> 
     }
   }
 
-  if (count === 0) count = await insertSmokeCase(ctx, existingNames);
+  if (count === 0) count = await insertSmokeCase(ctx, existing);
   return count;
 }
 
@@ -84,10 +122,10 @@ async function loadControls(ctx: DiscoveryContext, pageId: string): Promise<Disc
     }));
 }
 
-async function insertSmokeCase(ctx: DiscoveryContext, existingNames: Set<string>): Promise<number> {
-  const name = `${ctx.moduleName} — smoke test`;
-  if (existingNames.has(name)) return 0;
-  existingNames.add(name);
+async function insertSmokeCase(ctx: DiscoveryContext, existing: Map<string, unknown>): Promise<number> {
+  const name = `${ctx.moduleName} - smoke test`;
+  if (existing.has(name)) return 0;
+
 
   await ctx.store.insertTestCase({
     workflowId: undefined,

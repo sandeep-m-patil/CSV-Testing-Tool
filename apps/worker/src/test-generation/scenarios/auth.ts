@@ -9,7 +9,9 @@ import {
   SPACED_EMAIL,
   SPACED_PASSWORD,
   SQL_PAYLOAD,
-  UNREGISTERED_EMAIL,
+  UNREGISTERED_DOMAIN,
+  USERNAME_TOKEN,
+  PASSWORD_TOKEN,
   VALID_EMAIL,
   VALID_PASSWORD,
   WRONG_PASSWORD,
@@ -38,35 +40,69 @@ interface AuthSpec {
   maskingOnly?: boolean;
 }
 
-const EMAIL_VALUES: Record<Fill, string> = {
-  valid: VALID_EMAIL,
-  invalid: INVALID_EMAIL,
-  empty: "",
-  unregistered: UNREGISTERED_EMAIL,
-  noUsername: MISSING_USERNAME_EMAIL,
-  noDomain: MISSING_DOMAIN_EMAIL,
-  spaced: SPACED_EMAIL,
-  short: SHORT_PASSWORD,
-  sql: SQL_PAYLOAD,
-  xss: XSS_PAYLOAD,
-  long: longInput(),
-  upper: VALID_EMAIL.toUpperCase(),
-};
+/** The module's stored login, used to make credential-dependent cases real. */
+export interface AuthCredential {
+  username: string;
+  password: string | null;
+}
 
-const PASSWORD_VALUES: Record<Fill, string> = {
-  valid: VALID_PASSWORD,
-  invalid: WRONG_PASSWORD,
-  empty: "",
-  unregistered: WRONG_PASSWORD,
-  noUsername: WRONG_PASSWORD,
-  noDomain: WRONG_PASSWORD,
-  spaced: SPACED_PASSWORD,
-  short: SHORT_PASSWORD,
-  sql: SQL_PAYLOAD,
-  xss: XSS_PAYLOAD,
-  long: longInput(),
-  upper: WRONG_PASSWORD,
-};
+interface FillValues {
+  email: Record<Fill, string>;
+  password: Record<Fill, string>;
+  /** True when real values are substituted, otherwise demo placeholders are used. */
+  isReal: boolean;
+}
+
+/**
+ * Builds the fill values for the auth matrix. Values that are *deliberately*
+ * invalid (malformed addresses, injection payloads, over-long input) stay
+ * literal because they test validation rather than authentication. Values that
+ * must be real become tokens the executor resolves at run time, so no plaintext
+ * secret is ever written to the database.
+ */
+function fillValues(credential: AuthCredential | undefined): FillValues {
+  const isReal = Boolean(credential?.username && credential?.password);
+  const username = credential?.username?.trim() || VALID_EMAIL;
+  const realPassword = credential?.password;
+  const local = username.split("@")[0] || "user";
+  // A wrong password must be a constant, never something derived from the real
+  // one: a suffix or prefix would embed the actual secret in the stored step.
+  // Note the username is deliberately inlined, because `credentials.username` is
+  // already plaintext in the schema; only the password needs protecting.
+  const wrongPassword = WRONG_PASSWORD;
+
+  const email: Record<Fill, string> = {
+    valid: isReal ? USERNAME_TOKEN : username,
+    invalid: INVALID_EMAIL,
+    empty: "",
+    unregistered: `${local}@${UNREGISTERED_DOMAIN}`,
+    noUsername: MISSING_USERNAME_EMAIL,
+    noDomain: MISSING_DOMAIN_EMAIL,
+    spaced: isReal ? ` ${USERNAME_TOKEN} ` : SPACED_EMAIL,
+    short: SHORT_PASSWORD,
+    sql: SQL_PAYLOAD,
+    xss: XSS_PAYLOAD,
+    long: longInput(),
+    upper: username.toUpperCase(),
+  };
+
+  const password: Record<Fill, string> = {
+    valid: isReal ? PASSWORD_TOKEN : (realPassword ?? VALID_PASSWORD),
+    invalid: wrongPassword,
+    empty: "",
+    unregistered: wrongPassword,
+    noUsername: wrongPassword,
+    noDomain: wrongPassword,
+    spaced: isReal ? ` ${PASSWORD_TOKEN} ` : SPACED_PASSWORD,
+    short: SHORT_PASSWORD,
+    sql: SQL_PAYLOAD,
+    xss: XSS_PAYLOAD,
+    long: longInput(),
+    upper: wrongPassword,
+  };
+
+  return { email, password, isReal };
+}
 
 /** Mirrors a conventional manual login test matrix (happy path, negative, boundary, security, UI). */
 const AUTH_SPECS: AuthSpec[] = [
@@ -81,8 +117,8 @@ const AUTH_SPECS: AuthSpec[] = [
   { name: "Email with invalid format", type: "VALIDATION", priority: "MEDIUM", testData: "abc.com + valid password", expected: "Invalid email format message displayed", email: "invalid", password: "valid", submit: "submit", expect: { kind: "stayed_on_page", fromUrl: "" } },
   { name: "Email without username", type: "VALIDATION", priority: "MEDIUM", testData: "@gmail.com + valid password", expected: "Email validation displayed", email: "noUsername", password: "valid", submit: "submit", expect: { kind: "stayed_on_page", fromUrl: "" } },
   { name: "Email without domain", type: "VALIDATION", priority: "MEDIUM", testData: "user@ + valid password", expected: "Email validation displayed", email: "noDomain", password: "valid", submit: "submit", expect: { kind: "stayed_on_page", fromUrl: "" } },
-  { name: "Email with leading and trailing spaces", type: "BOUNDARY", priority: "MEDIUM", testData: "\"  demo@autotest.dev  \" + valid password", expected: "Spaces are trimmed or rejected per the documented requirement", email: "spaced", password: "valid", submit: "submit", expect: "manual" },
-  { name: "Password containing spaces", type: "BOUNDARY", priority: "MEDIUM", testData: "valid email + \" pass1234 \"", expected: "Accepted or rejected per the documented password rules", email: "valid", password: "spaced", submit: "submit", expect: "manual" },
+  { name: "Email with leading and trailing spaces", type: "BOUNDARY", priority: "MEDIUM", testData: "a valid email wrapped in spaces + valid password", expected: "Spaces are trimmed or rejected per the documented requirement", email: "spaced", password: "valid", submit: "submit", expect: "manual" },
+  { name: "Password containing spaces", type: "BOUNDARY", priority: "MEDIUM", testData: "valid email + a valid password wrapped in spaces", expected: "Accepted or rejected per the documented password rules", email: "valid", password: "spaced", submit: "submit", expect: "manual" },
   { name: "Valid password at minimum length", type: "BOUNDARY", priority: "MEDIUM", testData: `valid email + 8-character password (${MIN_LENGTH_PASSWORD})`, expected: "Login succeeds if the minimum length is accepted, otherwise a clear validation message", email: "valid", password: "valid", submit: "submit", expect: { kind: "any_of", options: [{ kind: "navigated_away", fromUrl: "" }, { kind: "error_message_present" }] } },
   { name: "Password below minimum length", type: "VALIDATION", priority: "MEDIUM", testData: `valid email + 2-character password (${SHORT_PASSWORD})`, expected: "Password validation message displayed", email: "valid", password: "short", submit: "submit", expect: { kind: "stayed_on_page", fromUrl: "" } },
   { name: "Password field is masked", type: "HAPPY_PATH", priority: "HIGH", testData: "enter a password and inspect the field", expected: "Password characters are masked (input type is password)", email: "valid", password: "valid", submit: "none", maskingOnly: true, expect: { kind: "input_attribute", target: PASSWORD_HINT, attribute: "type", equals: "password" } },
@@ -95,12 +131,12 @@ const AUTH_SPECS: AuthSpec[] = [
   { name: "Excessively long input", type: "BOUNDARY", priority: "MEDIUM", testData: `500-character email and password`, expected: "Application handles the input without crashing", email: "long", password: "long", submit: "submit", expect: { kind: "app_responsive" } },
 ];
 
-function materialise(pageUrl: string, spec: AuthSpec): GeneratedCase {
+function materialise(pageUrl: string, spec: AuthSpec, values: FillValues): GeneratedCase {
   const builder = new ScenarioBuilder(pageUrl);
 
   if (!spec.maskingOnly) {
-    builder.fill(EMAIL_HINT, EMAIL_VALUES[spec.email]);
-    builder.fill(PASSWORD_HINT, PASSWORD_VALUES[spec.password]);
+    builder.fill(EMAIL_HINT, values.email[spec.email]);
+    builder.fill(PASSWORD_HINT, values.password[spec.password]);
     if (spec.submit === "submit") builder.submit(SUBMIT_HINT);
     if (spec.submit === "enter") builder.press(PASSWORD_HINT, "Enter");
   }
@@ -132,8 +168,14 @@ function resolveExpectation(expect: Expectation, pageUrl: string): Expectation {
   return expect;
 }
 
-export function buildAuthScenarios(pageUrl: string): GeneratedCase[] {
-  return AUTH_SPECS.map((spec) => materialise(pageUrl, spec));
+/**
+ * Generates the login matrix. Pass the module's stored credential so the
+ * credential-dependent cases exercise a real account; without one they fall back
+ * to demo placeholders and are expected to fail until credentials are added.
+ */
+export function buildAuthScenarios(pageUrl: string, credential?: AuthCredential): GeneratedCase[] {
+  const values = fillValues(credential);
+  return AUTH_SPECS.map((spec) => materialise(pageUrl, spec, values));
 }
 
 export { truncated };

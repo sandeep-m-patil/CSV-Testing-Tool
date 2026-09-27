@@ -8,6 +8,9 @@ import type { Module } from "@repo/schemas";
 
 export type ProjectRow = Project;
 
+/** Run states that mean the worker is still working, so polling should continue. */
+const ACTIVE_RUN_STATUSES: string[] = ["QUEUED", "RUNNING"];
+
 export interface ModuleRow extends Module {
   projectName?: string;
   environment?: string;
@@ -213,6 +216,14 @@ export function useTestRuns(moduleId: string) {
     queryFn: () => apiFetch<{ runs: TestRunSummary[] }>(`/api/modules/${moduleId}/test-runs`),
     enabled: Boolean(moduleId),
     select: (data) => data.runs,
+    // The tab list has to refresh on its own, otherwise a run queued elsewhere
+    // never appears until the page is reloaded by hand. `query.state.data` is
+    // the raw queryFn payload; `select` runs at the observer, not in the cache.
+    refetchInterval: (query) => {
+      const payload = query.state.data as { runs?: TestRunSummary[] } | undefined;
+      const isActive = payload?.runs?.some((run) => ACTIVE_RUN_STATUSES.includes(run.status));
+      return isActive ? 2000 : false;
+    },
   });
 }
 
@@ -239,8 +250,6 @@ export interface TestRunDetail {
   module: { id: string; name: string; baseUrl: string | null } | null;
   results: TestRunResultRecord[];
 }
-
-const ACTIVE_RUN_STATUSES = ["QUEUED", "RUNNING"];
 
 export function useTestRun(testRunId: string | null, options: { refetchMs?: number } = {}) {
   return useQuery({
