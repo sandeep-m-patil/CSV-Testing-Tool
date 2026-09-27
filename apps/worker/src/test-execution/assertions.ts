@@ -78,6 +78,29 @@ async function checkAppResponsive(page: Page): Promise<AssertionOutcome> {
   return hasContent ? SATISFIED : { isSatisfied: false, detail: "page rendered no content" };
 }
 
+async function checkUrlContains(page: Page, value: string): Promise<AssertionOutcome> {
+  const actual = page.url();
+  return actual.includes(value)
+    ? SATISFIED
+    : { isSatisfied: false, detail: `expected URL to contain "${value}" but was "${actual}"` };
+}
+
+async function checkTextPresent(page: Page, value: string): Promise<AssertionOutcome> {
+  const body = ((await page.locator("body").innerText().catch(() => "")) ?? "").slice(0, 8000);
+  return body.includes(value)
+    ? SATISFIED
+    : { isSatisfied: false, detail: `expected text "${value}" on the page but it was not found` };
+}
+
+async function checkElementVisible(page: Page, target: string): Promise<AssertionOutcome> {
+  const locator = await resolveLocator(page, target);
+  if (!locator) return { isSatisfied: false, detail: `element not found: ${target}` };
+  const isVisible = await locator.isVisible().catch(() => false);
+  return isVisible
+    ? SATISFIED
+    : { isSatisfied: false, detail: `element exists but is not visible: ${target}` };
+}
+
 export async function evaluateExpectation(page: Page, expect: Expectation): Promise<AssertionOutcome> {
   switch (expect.kind) {
     case "navigated_away":
@@ -90,6 +113,12 @@ export async function evaluateExpectation(page: Page, expect: Expectation): Prom
       return checkInputAttribute(page, expect.target, expect.attribute, expect.equals);
     case "app_responsive":
       return checkAppResponsive(page);
+    case "url_contains":
+      return checkUrlContains(page, expect.value);
+    case "text_present":
+      return checkTextPresent(page, expect.value);
+    case "element_visible":
+      return checkElementVisible(page, expect.target);
     case "any_of": {
       const reasons: string[] = [];
       for (const option of expect.options) {

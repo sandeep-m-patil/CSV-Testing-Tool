@@ -12,6 +12,8 @@ export interface DiscoveredControl {
   name: string | null;
   label: string | null;
   placeholder: string | null;
+  /** Visible caption of a button or link, e.g. "Add to Cart". */
+  text: string | null;
   testId: string | null;
   cssSelector: string | null;
   ariaAttributes: unknown;
@@ -25,7 +27,7 @@ export interface ClassifiedField {
 }
 
 function haystack(control: DiscoveredControl): string {
-  return [control.name, control.label, control.placeholder, control.testId]
+  return [control.name, control.label, control.placeholder, control.testId, control.text]
     .filter((part): part is string => typeof part === "string" && part.length > 0)
     .join(" ")
     .toLowerCase();
@@ -54,7 +56,7 @@ function classifyControl(control: DiscoveredControl): FieldRole {
 }
 
 function labelFor(control: DiscoveredControl, fallback: string): string {
-  return control.label ?? control.placeholder ?? control.name ?? fallback;
+  return control.label ?? control.placeholder ?? control.text ?? control.name ?? fallback;
 }
 
 /** Returns controls mapped to a role, preserving DOM order and numbering repeats. */

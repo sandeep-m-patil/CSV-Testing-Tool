@@ -3,8 +3,8 @@ import { createAIProvider, type AIProvider } from "@repo/ai";
 import { CredentialCrypto, createChildLogger, createStorage, type StorageProvider } from "@repo/core";
 import { analyzeCurrentPage, resolveLocator, type AnalyzedPage, type DetectedAction } from "@repo/browser";
 import type { Db } from "@repo/db";
-import { credentials, modules, projects, testDataSets } from "@repo/db/schema";
-import { eq } from "drizzle-orm";
+import { credentials, discoveredActions, modules, projects, testDataSets } from "@repo/db/schema";
+import { and, eq } from "drizzle-orm";
 import { env } from "../env";
 import type { WorkerEnv } from "../env";
 import type { ActorContext, IndexedAction } from "./action-space";
@@ -135,7 +135,11 @@ export async function runDiscovery(input: RunInput): Promise<void> {
     }
 
     budget.workflows = await buildWorkflows(ctx);
-    if (budget.workflows > 0 && budget.actions > 0) {
+    // Gate on the pages and actions this session actually exercised, not on the
+    // number of newly created workflows. buildWorkflows returns 0 when it
+    // reuses workflows from an earlier run, which previously skipped test-case
+    // generation entirely on every re-discovery.
+    if ((await visitedPages(ctx)) > 0 && budget.actions > 0) {
       await generateTestCases(ctx);
     }
 
@@ -165,6 +169,15 @@ export async function runDiscovery(input: RunInput): Promise<void> {
   } finally {
     if (browser) await browser.close().catch(() => undefined);
   }
+}
+
+/** Counts pages this session actually exercised, which is what generation needs. */
+async function visitedPages(ctx: DiscoveryContext): Promise<number> {
+  const rows = await ctx.db
+    .select({ pageId: discoveredActions.pageId })
+    .from(discoveredActions)
+    .where(and(eq(discoveredActions.discoverySessionId, ctx.sessionId), eq(discoveredActions.executed, true)));
+  return new Set(rows.map((row) => row.pageId)).size;
 }
 
 async function exploreAsRole(browser: Browser, ctx: DiscoveryContext, credential: DecodedCredential, budget: StepBudget): Promise<void> {

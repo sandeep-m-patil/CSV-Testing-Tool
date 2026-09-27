@@ -10,6 +10,14 @@ function fillable(fields: ClassifiedField[]): ClassifiedField[] {
   return fields.filter((field) => (FILLABLE_ROLES as readonly string[]).includes(field.role));
 }
 
+/**
+ * True when the page exposes something a user could type into. Links and
+ * buttons are classified too, so callers must not test `fields.length` here.
+ */
+export function hasFillableFields(fields: ClassifiedField[]): boolean {
+  return fillable(fields).length > 0;
+}
+
 function hintList(fields: ClassifiedField[]): string[] {
   return fields.map(hintFor);
 }

@@ -1,5 +1,5 @@
 import { and, asc, eq } from "drizzle-orm";
-import { discoveredActions, discoveredElements, discoveredPages } from "@repo/db/schema";
+import { discoveredActions, discoveredElements, discoveredPages, testCases } from "@repo/db/schema";
 import type { DiscoveryContext } from "../discovery/runner";
 import { classifyFields, type DiscoveredControl } from "./fields";
 import { buildScenariosForPage, isAuthForm } from "./scenarios";
@@ -23,17 +23,29 @@ export async function generateTestCases(ctx: DiscoveryContext): Promise<number> 
   const visited = new Set(actions.map((action) => action.pageId));
   let count = 0;
 
+  // Re-running discovery must not duplicate cases that a previous run already
+  // generated for this module, so existing names are treated as the dedup key.
+  const existingNames = new Set(
+    (await ctx.db.select({ name: testCases.name }).from(testCases).where(eq(testCases.moduleId, ctx.moduleId))).map(
+      (row) => row.name,
+    ),
+  );
+
   for (const page of pages) {
     if (!visited.has(page.id)) continue;
     const controls = await loadControls(ctx, page.id);
     const fields = classifyFields(controls);
-    const scenarios = buildScenariosForPage({ pageUrl: page.url, pageName: page.name, fields });
+    const scenarios = buildScenariosForPage({ pageUrl: page.url, pageName: page.name, fields, controls });
     if (scenarios.length === 0) continue;
 
     for (const scenario of scenarios) {
+      const name = `${ctx.moduleName} — ${scenario.name}`;
+      if (existingNames.has(name)) continue;
+      existingNames.add(name);
+
       await ctx.store.insertTestCase({
         workflowId: undefined,
-        name: `${ctx.moduleName} — ${scenario.name}`,
+        name,
         description: `${scenario.description} (auto-generated from ${isAuthForm(fields) ? "auth form" : "form"} analysis on ${page.name}).`,
         type: scenario.type,
         priority: scenario.priority,
@@ -47,7 +59,7 @@ export async function generateTestCases(ctx: DiscoveryContext): Promise<number> 
     }
   }
 
-  if (count === 0) count = await insertSmokeCase(ctx);
+  if (count === 0) count = await insertSmokeCase(ctx, existingNames);
   return count;
 }
 
@@ -65,16 +77,21 @@ async function loadControls(ctx: DiscoveryContext, pageId: string): Promise<Disc
       name: row.name,
       label: row.label,
       placeholder: row.placeholder,
+      text: row.text,
       testId: row.testId,
       cssSelector: row.cssSelector,
       ariaAttributes: row.ariaAttributes,
     }));
 }
 
-async function insertSmokeCase(ctx: DiscoveryContext): Promise<number> {
+async function insertSmokeCase(ctx: DiscoveryContext, existingNames: Set<string>): Promise<number> {
+  const name = `${ctx.moduleName} — smoke test`;
+  if (existingNames.has(name)) return 0;
+  existingNames.add(name);
+
   await ctx.store.insertTestCase({
     workflowId: undefined,
-    name: `${ctx.moduleName} — smoke test`,
+    name,
     description: "Application landing page loads successfully.",
     type: "smoke",
     priority: "high",

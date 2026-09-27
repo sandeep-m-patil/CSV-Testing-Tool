@@ -26,6 +26,9 @@ export type Expectation =
   | { kind: "error_message_present" }
   | { kind: "input_attribute"; target: string; attribute: string; equals: string }
   | { kind: "app_responsive" }
+  | { kind: "url_contains"; value: string }
+  | { kind: "text_present"; value: string }
+  | { kind: "element_visible"; target: string }
   | { kind: "any_of"; options: Expectation[] };
 
 export interface ExecutableStep {
