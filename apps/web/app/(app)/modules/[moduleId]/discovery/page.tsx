@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { Suspense, useEffect, useState } from "react";
 import { useParams, useSearchParams } from "next/navigation";
 import { CheckCircle2, CircleDashed, RotateCw, TerminalSquare, XCircle } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
@@ -16,6 +16,14 @@ import { EvidencePanel } from "@/features/discovery/evidence-panel";
 import { LogConsole } from "@/features/discovery/log-console";
 
 export default function ModuleDiscoveryPage() {
+  return (
+    <Suspense fallback={<Skeleton className="mx-auto my-6 h-96 max-w-6xl rounded-xl" />}>
+      <DiscoveryView />
+    </Suspense>
+  );
+}
+
+function DiscoveryView() {
   const params = useParams<{ moduleId: string }>();
   const moduleId = params.moduleId;
   const searchParams = useSearchParams();

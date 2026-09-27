@@ -13,6 +13,7 @@ const TABS = [
   { key: "config", label: "Credentials & Data" },
   { key: "discovery", label: "Discovery" },
   { key: "review", label: "Review" },
+  { key: "test-runs", label: "Test runs" },
   { key: "report", label: "Report" },
 ] as const;
 

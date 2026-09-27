@@ -6,7 +6,7 @@ import { assertSameOrigin } from "@/lib/csrf";
 import { requireSession } from "@/lib/auth/get-session";
 import { requireModuleAccess } from "@/lib/auth/guards";
 import { db } from "@/lib/db";
-import { maskCredential } from "../route";
+import { maskCredential } from "@/lib/credentials";
 
 type Params = { params: Promise<Record<string, string>> };
 

@@ -56,3 +56,39 @@ export const discoveryJobDefaults: JobsOptions = {
   backoff: { type: "exponential", delay: DISCOVERY_BACKOFF },
   jobId: undefined,
 };
+
+export const TEST_RUN_QUEUE = "test-run";
+export const TEST_RUN_JOB_NAME = "run-module-test-suite";
+export const TEST_RUN_ATTEMPTS = 1;
+export const TEST_RUN_CONCURRENCY = 1;
+
+export interface TestRunJobData {
+  testRunId: string;
+  moduleId: string;
+  projectId: string;
+  triggeredBy?: string;
+}
+
+export function createTestRunQueue(redisUrl: string, prefix = "autotest"): Queue<TestRunJobData> {
+  return new Queue<TestRunJobData>(TEST_RUN_QUEUE, {
+    connection: createRedisConnection(redisUrl),
+    prefix,
+    defaultJobOptions: {
+      attempts: TEST_RUN_ATTEMPTS,
+      removeOnComplete: 200,
+      removeOnFail: 500,
+    },
+  });
+}
+
+export function createTestRunWorker(
+  redisUrl: string,
+  processor: Processor<TestRunJobData>,
+  options: { prefix?: string } = {},
+): Worker<TestRunJobData> {
+  return new Worker<TestRunJobData>(TEST_RUN_QUEUE, processor, {
+    connection: createRedisConnection(redisUrl),
+    prefix: options.prefix ?? "autotest",
+    concurrency: TEST_RUN_CONCURRENCY,
+  });
+}

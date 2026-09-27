@@ -29,6 +29,20 @@
       "when": 1790503000000,
       "tag": "0003_drop_project_base_url_default",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1790505000000,
+      "tag": "0004_add_test_runs",
+      "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1790506000000,
+      "tag": "0005_add_test_case_data_columns",
+      "breakpoints": true
     }
   ]
 }

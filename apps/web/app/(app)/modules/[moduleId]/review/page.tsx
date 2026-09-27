@@ -1,6 +1,7 @@
 "use client";
 
 import { useParams } from "next/navigation";
+import Link from "next/link";
 import { FileCode2, GitBranch, Info } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -10,6 +11,7 @@ import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { useModuleDetail, useTestCases, useWorkflows, type TestCaseRecord, type WorkflowRecord } from "@/features/hooks";
 import { ModuleNav } from "@/features/modules/module-nav";
 import { DiscoverModuleButton } from "@/features/discovery/discover-button";
+import { RunTestsButton } from "@/features/test-runs/run-tests-button";
 
 export default function ModuleReviewPage() {
   const params = useParams<{ moduleId: string }>();
@@ -39,14 +41,19 @@ export default function ModuleReviewPage() {
     <div className="mx-auto max-w-6xl space-y-6">
       <ModuleNav moduleId={moduleId} moduleName={module.name} status={module.discoveryStatus} />
 
-      <div className="flex items-center justify-between">
+      <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <h2 className="text-lg font-semibold">Review</h2>
           <p className="text-sm text-muted-foreground">
-            Workflows and candidate test cases generated from the last discovery run. Execution arrives in Phase 3.
+            Workflows and test cases generated from the last discovery run. Run them from the Test runs tab.
           </p>
         </div>
-        {module.discoveryStatus !== "DISCOVERING" && <DiscoverModuleButton moduleId={moduleId} moduleName={module.name} />}
+        <div className="flex items-center gap-2">
+          <RunTestsButton moduleId={moduleId} moduleName={module.name} caseCount={testCases?.length ?? 0} />
+          {module.discoveryStatus !== "DISCOVERING" && (
+            <DiscoverModuleButton moduleId={moduleId} moduleName={module.name} />
+          )}
+        </div>
       </div>
 
       {!hasResult && (
@@ -66,7 +73,17 @@ export default function ModuleReviewPage() {
           <TabsContent value="workflows" className="mt-4">
             <WorkflowList workflows={workflows ?? []} loading={workflowsLoading} />
           </TabsContent>
-          <TabsContent value="tests" className="mt-4">
+          <TabsContent value="tests" className="mt-4 space-y-3">
+            {(testCases?.length ?? 0) > 0 && (
+              <div className="flex items-center justify-between text-sm text-muted-foreground">
+                <span>
+                  {testCases!.length} case{testCases!.length === 1 ? "" : "s"} ready to run
+                </span>
+                <Link href={`/modules/${moduleId}/test-runs`} className="font-medium text-primary hover:underline">
+                  View results
+                </Link>
+              </div>
+            )}
             <TestCaseList testCases={testCases ?? []} loading={testsLoading} />
           </TabsContent>
         </Tabs>

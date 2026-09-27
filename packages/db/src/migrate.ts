@@ -13,7 +13,10 @@ try {
   console.log(`Applying migrations from ${migrationsFolder}...`);
   await migrate(db, { migrationsFolder });
   console.log("Migrations applied.");
-} finally {
   await closeAll();
   process.exit(0);
+} catch (error) {
+  console.error("Migration failed:", error instanceof Error ? (error.stack ?? error.message) : error);
+  await closeAll();
+  process.exit(1);
 }

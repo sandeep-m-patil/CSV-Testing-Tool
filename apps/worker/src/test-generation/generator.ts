@@ -1,21 +1,16 @@
 import { and, asc, eq } from "drizzle-orm";
-import { discoveredActions, discoveredPages } from "@repo/db/schema";
+import { discoveredActions, discoveredElements, discoveredPages } from "@repo/db/schema";
 import type { DiscoveryContext } from "../discovery/runner";
-import { resolveStepValue } from "../workflows/builder";
+import { classifyFields, type DiscoveredControl } from "./fields";
+import { buildScenariosForPage, isAuthForm } from "./scenarios";
 
-interface ExecutedAction {
-  pageId: string;
-  action: string;
-  targetLabel: string;
-}
-
-const ACTION_STEP_TYPE = "action";
-const VERIFY_STEP_TYPE = "verify";
+const INPUT_TYPES = ["input", "textarea", "select", "button", "a", "link"];
 
 /**
- * Deterministically generate DRAFT test cases from the executed action trace:
- * one functional case per page where a form was filled + submitted, and one
- * smoke case that just loads the application landing page.
+ * Deterministically generate DRAFT test cases from the executed action trace.
+ * Pages whose controls classify as an auth form get the full login matrix
+ * (happy path, negative, validation, boundary, security, UI); every other form
+ * gets a smaller baseline. A smoke case is always emitted as a floor.
  */
 export async function generateTestCases(ctx: DiscoveryContext): Promise<number> {
   const pages = await ctx.db.select().from(discoveredPages).where(eq(discoveredPages.discoverySessionId, ctx.sessionId)).orderBy(asc(discoveredPages.order));
@@ -25,70 +20,78 @@ export async function generateTestCases(ctx: DiscoveryContext): Promise<number> 
     .where(and(eq(discoveredActions.discoverySessionId, ctx.sessionId), eq(discoveredActions.executed, true)))
     .orderBy(asc(discoveredActions.createdAt));
 
-  const actionsByPage = new Map<string, ExecutedAction[]>();
-  for (const action of actions) {
-    const targetInfo = action.target as { label?: string; text?: string; url?: string };
-    const label = targetInfo.label ?? targetInfo.text ?? targetInfo.url ?? action.action;
-    const list = actionsByPage.get(action.pageId) ?? [];
-    list.push({ pageId: action.pageId, action: action.action, targetLabel: label });
-    actionsByPage.set(action.pageId, list);
-  }
-
+  const visited = new Set(actions.map((action) => action.pageId));
   let count = 0;
 
   for (const page of pages) {
-    const pageActions = actionsByPage.get(page.id);
-    if (!pageActions || pageActions.length === 0) continue;
+    if (!visited.has(page.id)) continue;
+    const controls = await loadControls(ctx, page.id);
+    const fields = classifyFields(controls);
+    const scenarios = buildScenariosForPage({ pageUrl: page.url, pageName: page.name, fields });
+    if (scenarios.length === 0) continue;
 
-    const didFill = pageActions.some((action) => action.action === "FILL");
-    const didSubmit = pageActions.some((action) => action.action === "SUBMIT");
-    if (!didFill && !didSubmit) continue;
-
-    const steps: Array<{ order: number; action: string; target: string; value?: string; stepType: string }> = [];
-    steps.push({ order: 1, action: "GOTO", target: page.url, stepType: ACTION_STEP_TYPE });
-
-    for (const action of pageActions) {
-      if (action.action === "FILL") {
-        const value = resolveStepValue({ ...action, cssSelector: null, executed: true, order: steps.length }, ctx);
-        steps.push({ order: steps.length + 1, action: "FILL", target: action.targetLabel, value, stepType: ACTION_STEP_TYPE });
-      } else if (action.action === "SELECT" || action.action === "CHECK" || action.action === "UNCHECK") {
-        steps.push({ order: steps.length + 1, action: action.action, target: action.targetLabel, value: "first option", stepType: ACTION_STEP_TYPE });
-      } else if (action.action === "SUBMIT") {
-        steps.push({ order: steps.length + 1, action: "SUBMIT", target: action.targetLabel, stepType: ACTION_STEP_TYPE });
-      }
+    for (const scenario of scenarios) {
+      await ctx.store.insertTestCase({
+        workflowId: undefined,
+        name: `${ctx.moduleName} — ${scenario.name}`,
+        description: `${scenario.description} (auto-generated from ${isAuthForm(fields) ? "auth form" : "form"} analysis on ${page.name}).`,
+        type: scenario.type,
+        priority: scenario.priority,
+        role: ctx.role ?? null,
+        precondition: ctx.credentials.length > 0 ? "login with role credentials" : null,
+        testData: scenario.testData,
+        expectedResult: scenario.expectedResult,
+        steps: scenario.steps,
+      });
+      count += 1;
     }
-
-    steps.push({ order: steps.length + 1, action: "VERIFY", target: `${page.name} page loads without errors`, stepType: VERIFY_STEP_TYPE });
-
-    await ctx.store.insertTestCase({
-      workflowId: undefined,
-      name: `${ctx.moduleName} — ${page.name} form submission`,
-      description: `Filled and submitted the form on ${page.name} with generated test data during autonomous discovery.`,
-      type: "functional",
-      priority: didSubmit ? "high" : "normal",
-      role: ctx.role ?? null,
-      precondition: ctx.credentials.some((credential) => credential.password !== null) ? "login with role credentials" : null,
-      steps,
-    });
-    count += 1;
   }
 
-  if (count === 0) {
-    await ctx.store.insertTestCase({
-      workflowId: undefined,
-      name: `${ctx.moduleName} — smoke test`,
-      description: "Application landing page loads successfully.",
-      type: "smoke",
-      priority: "high",
-      role: ctx.role ?? null,
-      precondition: null,
-      steps: [
-        { order: 1, action: "GOTO", target: ctx.baseUrl, stepType: ACTION_STEP_TYPE },
-        { order: 2, action: "VERIFY", target: `${ctx.moduleName} application loads`, stepType: VERIFY_STEP_TYPE },
-      ],
-    });
-    count = 1;
-  }
-
+  if (count === 0) count = await insertSmokeCase(ctx);
   return count;
+}
+
+async function loadControls(ctx: DiscoveryContext, pageId: string): Promise<DiscoveredControl[]> {
+  const rows = await ctx.db
+    .select()
+    .from(discoveredElements)
+    .where(eq(discoveredElements.pageId, pageId))
+    .orderBy(asc(discoveredElements.createdAt));
+
+  return rows
+    .filter((row) => INPUT_TYPES.includes(row.elementType.toLowerCase()))
+    .map((row) => ({
+      elementType: row.elementType,
+      name: row.name,
+      label: row.label,
+      placeholder: row.placeholder,
+      testId: row.testId,
+      cssSelector: row.cssSelector,
+      ariaAttributes: row.ariaAttributes,
+    }));
+}
+
+async function insertSmokeCase(ctx: DiscoveryContext): Promise<number> {
+  await ctx.store.insertTestCase({
+    workflowId: undefined,
+    name: `${ctx.moduleName} — smoke test`,
+    description: "Application landing page loads successfully.",
+    type: "smoke",
+    priority: "high",
+    role: ctx.role ?? null,
+    precondition: null,
+    testData: "navigate to the application root",
+    expectedResult: "The application loads and stays responsive",
+    steps: [
+      { order: 1, action: "GOTO", target: ctx.baseUrl, stepType: "action" },
+      {
+        order: 2,
+        action: "VERIFY",
+        target: ctx.baseUrl,
+        stepType: "verify",
+        expect: { kind: "app_responsive" },
+      },
+    ],
+  });
+  return 1;
 }

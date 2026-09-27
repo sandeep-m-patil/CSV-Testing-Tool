@@ -72,6 +72,8 @@ export const testCases = pgTable(
     source: varchar("source", { length: 24 }).notNull().default("discovered"),
     role: varchar("role", { length: 120 }),
     precondition: text("precondition"),
+    testData: text("test_data"),
+    expectedResult: text("expected_result"),
     steps: jsonb("steps").notNull().default([]),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
@@ -108,3 +110,59 @@ export const testCaseSteps = pgTable(
 );
 export type TestCaseStepRow = typeof testCaseSteps.$inferSelect;
 export type NewTestCaseStepRow = typeof testCaseSteps.$inferInsert;
+
+export const testRuns = pgTable(
+  "test_runs",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    moduleId: uuid("module_id")
+      .notNull()
+      .references(() => modules.id, { onDelete: "cascade" }),
+    triggeredBy: uuid("triggered_by"),
+    status: varchar("status", { length: 16 }).notNull().default("QUEUED"),
+    totalCases: integer("total_cases").notNull().default(0),
+    passedCases: integer("passed_cases").notNull().default(0),
+    failedCases: integer("failed_cases").notNull().default(0),
+    skippedCases: integer("skipped_cases").notNull().default(0),
+    error: text("error"),
+    startedAt: timestamp("started_at", { withTimezone: true }),
+    completedAt: timestamp("completed_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    index("test_runs_module_id_idx").on(table.moduleId),
+    index("test_runs_status_idx").on(table.status),
+    index("test_runs_created_at_idx").on(table.createdAt),
+  ],
+);
+export type TestRunRow = typeof testRuns.$inferSelect;
+export type NewTestRunRow = typeof testRuns.$inferInsert;
+
+export const testRunResults = pgTable(
+  "test_run_results",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    testRunId: uuid("test_run_id")
+      .notNull()
+      .references(() => testRuns.id, { onDelete: "cascade" }),
+    testCaseId: uuid("test_case_id")
+      .notNull()
+      .references(() => testCases.id, { onDelete: "cascade" }),
+    status: varchar("status", { length: 8 }).notNull().default("SKIP"),
+    durationMs: integer("duration_ms"),
+    testData: text("test_data"),
+    expectedResult: text("expected_result"),
+    actualResult: text("actual_result"),
+    error: text("error"),
+    screenshotKey: text("screenshot_key"),
+    order: integer("order").notNull().default(0),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    index("test_run_results_run_id_idx").on(table.testRunId),
+    index("test_run_results_case_id_idx").on(table.testCaseId),
+    index("test_run_results_status_idx").on(table.status),
+  ],
+);
+export type TestRunResultRow = typeof testRunResults.$inferSelect;
+export type NewTestRunResultRow = typeof testRunResults.$inferInsert;

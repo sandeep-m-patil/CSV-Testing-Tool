@@ -1,13 +1,35 @@
 import { env } from "./env";
 import { closeAll } from "@repo/db";
-import { createDiscoveryWorker, createChildLogger, logger, DISCOVERY_JOB_NAME } from "@repo/core";
+import {
+  createDiscoveryWorker,
+  createTestRunWorker,
+  createChildLogger,
+  logger,
+  DISCOVERY_JOB_NAME,
+  TEST_RUN_JOB_NAME,
+} from "@repo/core";
 import { processDiscoveryJob } from "./processor";
+import { processTestRunJob } from "./test-execution/processor";
 
 const log = createChildLogger({ scope: "worker-bootstrap" });
 
 async function main(): Promise<void> {
   const worker = createDiscoveryWorker(env.REDIS_URL, processDiscoveryJob, {
     concurrency: env.WORKER_CONCURRENCY,
+  });
+
+  const testRunWorker = createTestRunWorker(env.REDIS_URL, processTestRunJob);
+
+  testRunWorker.on("completed", (job) => {
+    log.info({ jobId: job.id, testRunId: job.data.testRunId }, "test run job completed");
+  });
+
+  testRunWorker.on("failed", (job, error) => {
+    log.error({ jobId: job?.id, testRunId: job?.data.testRunId, error: error.message }, "test run job failed");
+  });
+
+  testRunWorker.on("error", (error) => {
+    log.error({ error: error.message }, "bullmq test run worker error");
   });
 
   worker.on("completed", (job) => {
@@ -30,11 +52,13 @@ async function main(): Promise<void> {
       workerId: worker.id,
       name: DISCOVERY_JOB_NAME,
       concurrency: env.WORKER_CONCURRENCY,
+      testRunWorkerId: testRunWorker.id,
+      testRunJob: TEST_RUN_JOB_NAME,
       headless: env.BROWSER_HEADLESS,
       aiProvider: env.AI_PROVIDER,
       storageDriver: env.STORAGE_DRIVER,
     },
-    "autotest discovery worker started",
+    "autotest worker started",
   );
 
   const shutdown = async (signal: string) => {
@@ -42,6 +66,7 @@ async function main(): Promise<void> {
     const forceExit = setTimeout(() => process.exit(1), 10_000);
     forceExit.unref();
     await worker.close();
+    await testRunWorker.close();
     await closeAll();
     process.exit(0);
   };

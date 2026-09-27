@@ -247,7 +247,9 @@ export class DiscoveryStore {
       priority: string;
       role: string | null;
       precondition: string | null;
-      steps: Array<{ order: number; action: string; target: string; value?: string; stepType: string }>;
+      testData?: string | null;
+      expectedResult?: string | null;
+      steps: Array<{ order: number; action: string; target: string; value?: string; stepType: string; expect?: unknown }>;
     },
   ): Promise<void> {
     const [testCase] = await this.db
@@ -264,6 +266,8 @@ export class DiscoveryStore {
         source: "generated",
         role: input.role,
         precondition: input.precondition,
+        testData: input.testData ?? null,
+        expectedResult: input.expectedResult ?? null,
         steps: input.steps,
       })
       .returning({ id: testCases.id });

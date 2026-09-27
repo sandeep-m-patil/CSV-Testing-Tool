@@ -7,20 +7,9 @@ import { assertSameOrigin } from "@/lib/csrf";
 import { requireSession } from "@/lib/auth/get-session";
 import { requireModuleAccess } from "@/lib/auth/guards";
 import { db } from "@/lib/db";
+import { maskCredential } from "@/lib/credentials";
 
 type Params = { params: Promise<Record<string, string>> };
-
-export function maskCredential(credential: typeof credentials.$inferSelect) {
-  return {
-    id: credential.id,
-    moduleId: credential.moduleId,
-    role: credential.role,
-    username: credential.username,
-    hasSecret: credential.secretData.length > 0,
-    createdAt: credential.createdAt.toISOString(),
-    updatedAt: credential.updatedAt.toISOString(),
-  };
-}
 
 export const GET = route(async (_request, context: Params) => {
   const session = await requireSession();

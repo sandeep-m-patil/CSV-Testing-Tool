@@ -192,6 +192,65 @@ export function useTestCases(moduleId: string) {
   });
 }
 
+export interface TestRunSummary {
+  id: string;
+  moduleId: string;
+  status: string;
+  totalCases: number;
+  passedCases: number;
+  failedCases: number;
+  skippedCases: number;
+  error: string | null;
+  startedAt: string | null;
+  completedAt: string | null;
+  createdAt: string;
+}
+
+export function useTestRuns(moduleId: string) {
+  return useQuery({
+    queryKey: queryKeys.testRuns(moduleId),
+    queryFn: () => apiFetch<{ runs: TestRunSummary[] }>(`/api/modules/${moduleId}/test-runs`),
+    enabled: Boolean(moduleId),
+    select: (data) => data.runs,
+  });
+}
+
+export interface TestRunResultRecord {
+  id: string;
+  testCaseId: string;
+  status: "PASS" | "FAIL" | "SKIP";
+  durationMs: number | null;
+  testData: string | null;
+  expectedResult: string | null;
+  actualResult: string | null;
+  error: string | null;
+  screenshotUrl: string | null;
+  order: number;
+  code: string;
+  name: string;
+  type: string;
+  priority: string;
+}
+
+export interface TestRunDetail {
+  testRun: TestRunSummary;
+  results: TestRunResultRecord[];
+}
+
+const ACTIVE_RUN_STATUSES = ["QUEUED", "RUNNING"];
+
+export function useTestRun(testRunId: string | null, options: { refetchMs?: number } = {}) {
+  return useQuery({
+    queryKey: queryKeys.testRun(testRunId ?? "none"),
+    queryFn: () => apiFetch<TestRunDetail>(`/api/test-runs/${testRunId}`),
+    enabled: Boolean(testRunId),
+    refetchInterval: (query) => {
+      const status = query.state.data?.testRun?.status;
+      return status && ACTIVE_RUN_STATUSES.includes(status) ? (options.refetchMs ?? 2000) : false;
+    },
+  });
+}
+
 export interface ModuleReport {
   report: {
     project: { name: string; baseUrl: string; environment: string };
