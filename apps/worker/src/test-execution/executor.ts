@@ -67,6 +67,19 @@ function resolveValue(raw: string | null | undefined, credential?: RunCredential
 
 const NAVIGATION_TIMEOUT_MS = 20000;
 const SETTLE_TIMEOUT_MS = 750;
+/**
+ * How long an expectation is retried before it is declared unmet. A real login
+ * POST plus client redirect can take ~2s, so sampling the expectation once at
+ * the end of the step sequence reports a false failure on a slow-but-correct app.
+ */
+const EXPECTATION_POLL_MS = 10000;
+const EXPECTATION_POLL_INTERVAL_MS = 250;
+/**
+ * Window a "must not navigate" expectation is observed over. Kept short so a
+ * suite full of negative cases stays quick, but longer than a real redirect
+ * (~2s observed) so a late navigation is not mistaken for success.
+ */
+const NEGATIVE_SETTLE_MS = 3000;
 
 /** Executes one test case in an isolated page so state cannot leak between cases. */
 export async function executeCase(ctx: RunContext, testCase: ExecutableCase, order: number): Promise<CaseOutcome> {
@@ -89,7 +102,7 @@ export async function executeCase(ctx: RunContext, testCase: ExecutableCase, ord
         actual: "No machine-checkable expectation; requires manual verification",
       });
     }
-    const outcome = await evaluateExpectation(page, finalStep.expect);
+    const outcome = await awaitExpectation(page, finalStep.expect);
     return await finish(ctx, page, testCase, startedAt, order, {
       status: outcome.isSatisfied ? "PASS" : "FAIL",
       actual: outcome.detail,
@@ -153,6 +166,38 @@ async function performStep(page: Page, step: ExecutableStep, credential?: RunCre
 
 function lastVerifyStep(steps: ExecutableStep[]): ExecutableStep | undefined {
   return [...steps].reverse().find((step) => step.stepType === "verify");
+}
+
+/**
+ * Retries the expectation until it holds or the budget runs out.
+ *
+ * A single sample is not a fair test of an asynchronous UI: a submit that
+ * redirects in ~2s reads as "still on the login page" if checked at 750ms, which
+ * reports a false failure against a correct app. Polling fixes that for
+ * expectations that become true over time.
+ *
+ * The exception is `stayed_on_page`, which is *expected* to hold immediately.
+ * Polling it would return success on the first sample and then never re-check,
+ * so a late redirect would be recorded as a pass. It is instead re-checked after
+ * a full settle window, and only counts as a pass if the page is still there.
+ */
+async function awaitExpectation(
+  page: Page,
+  expect: Expectation,
+  budgetMs: number = EXPECTATION_POLL_MS,
+): Promise<{ isSatisfied: boolean; detail: string }> {
+  if (expect.kind === "stayed_on_page") {
+    await page.waitForTimeout(NEGATIVE_SETTLE_MS);
+    return evaluateExpectation(page, expect);
+  }
+
+  const deadline = Date.now() + budgetMs;
+  let last = await evaluateExpectation(page, expect);
+  while (!last.isSatisfied && Date.now() < deadline) {
+    await page.waitForTimeout(EXPECTATION_POLL_INTERVAL_MS);
+    last = await evaluateExpectation(page, expect);
+  }
+  return last;
 }
 
 interface FinishInput {

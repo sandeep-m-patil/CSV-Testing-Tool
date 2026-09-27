@@ -12,6 +12,7 @@ import { useModuleDetail, useTestCases, useWorkflows, type TestCaseRecord, type 
 import { ModuleNav } from "@/features/modules/module-nav";
 import { DiscoverModuleButton } from "@/features/discovery/discover-button";
 import { RunTestsButton } from "@/features/test-runs/run-tests-button";
+import { formatStepValue } from "@/lib/test-cases/step-display";
 
 export default function ModuleReviewPage() {
   const params = useParams<{ moduleId: string }>();
@@ -128,7 +129,9 @@ function WorkflowList({ workflows, loading }: { workflows: WorkflowRecord[]; loa
                   <code className="rounded bg-muted px-1 py-0.5 text-xs">{step.action}</code>{" "}
                   <span className="font-mono text-xs text-muted-foreground">{step.target}</span>
                   {step.value === undefined && null}
-                  {step.value !== undefined && <span className="text-xs text-muted-foreground"> = “{step.value}”</span>}
+                  {step.value !== undefined && (
+                    <span className="text-xs text-muted-foreground"> = “{formatStepValue(step.value)}”</span>
+                  )}
                   {step.optional && <Badge variant="muted" className="ml-1">optional</Badge>}
                 </span>
               </li>
@@ -172,7 +175,9 @@ function TestCaseList({ testCases, loading }: { testCases: TestCaseRecord[]; loa
                 <span>
                   <code className="rounded bg-muted px-1 py-0.5 text-xs">{step.action}</code>{" "}
                   <span className="font-mono text-xs text-muted-foreground">{step.target}</span>
-                  {step.value !== undefined && <span className="text-xs text-muted-foreground"> = “{step.value}”</span>}
+                  {step.value !== undefined && (
+                    <span className="text-xs text-muted-foreground"> = “{formatStepValue(step.value)}”</span>
+                  )}
                   {step.type === "assertion" && <Badge variant="info" className="ml-1">assertion</Badge>}
                 </span>
               </li>

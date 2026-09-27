@@ -4,6 +4,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
 import { formatDate } from "@/lib/utils";
+import { formatStepValue } from "@/lib/test-cases/step-display";
 
 export type ReportPage = {
   id: string;
@@ -162,7 +163,9 @@ export function WorkflowsList({ workflows }: { workflows: ReportWorkflow[] }) {
                   <span className="w-5 shrink-0 tabular-nums text-muted-foreground">{index + 1}.</span>
                   <span>
                     <span className="font-medium uppercase">{step.action}</span> {step.target}
-                    {step.value ? <span className="text-muted-foreground"> = {step.value}</span> : null}
+                    {formatStepValue(step.value) ? (
+                      <span className="text-muted-foreground"> = {formatStepValue(step.value)}</span>
+                    ) : null}
                   </span>
                 </li>
               ))}
