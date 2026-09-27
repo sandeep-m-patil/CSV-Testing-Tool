@@ -1,10 +1,12 @@
 import { desc, eq, and, like, type SQL } from "drizzle-orm";
 import { projects } from "@repo/db/schema";
 import { CreateProjectInputSchema } from "@repo/schemas";
+import { AppError } from "@repo/core";
 import { created, ok, parseBody, route } from "@/lib/api";
 import { assertSameOrigin } from "@/lib/csrf";
 import { requireSession } from "@/lib/auth/get-session";
 import { db } from "@/lib/db";
+import { provisionProjectDiscovery } from "@/lib/discovery";
 
 export const GET = route(async (request) => {
   const session = await requireSession();
@@ -42,8 +44,32 @@ export const POST = route(async (request) => {
 
   const [project] = await db
     .insert(projects)
-    .values({ name: input.name, description: input.description || null, createdBy: session.userId })
+    .values({
+      name: input.name,
+      description: input.description || null,
+      baseUrl: input.baseUrl,
+      environment: input.environment,
+      productionConfirmed: input.productionConfirmed,
+      createdBy: session.userId,
+    })
     .returning();
 
-  return created({ project });
+  if (!project) {
+    throw new AppError("PROJECT_CREATE_FAILED", "Could not create the project", 500);
+  }
+
+  // Every new project starts with a whole-site module and an immediate discovery
+  // run. Production projects are skipped: autonomous crawling is blocked there,
+  // so the caller still gets a usable project instead of a failed request.
+  let provision: { moduleId: string; discoverySessionId: string } | null = null;
+  let provisionError: string | null = null;
+  if (project.environment !== "production") {
+    try {
+      provision = await provisionProjectDiscovery(project.id);
+    } catch (error) {
+      provisionError = error instanceof Error ? error.message : String(error);
+    }
+  }
+
+  return created({ project, ...(provision ? { provision } : {}), ...(provisionError ? { provisionError } : {}) });
 });

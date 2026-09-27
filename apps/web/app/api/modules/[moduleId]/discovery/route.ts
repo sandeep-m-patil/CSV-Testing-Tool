@@ -1,6 +1,13 @@
 import { asc, desc, eq } from "drizzle-orm";
-import { applications, discoveryArtifacts, discoveryLogs, discoverySessions, modules, discoveredPages } from "@repo/db/schema";
-import { AppError } from "@repo/core";
+import {
+  projects,
+  discoveryArtifacts,
+  discoveryLogs,
+  discoverySessions,
+  discoveredActions,
+  modules,
+  discoveredPages,
+} from "@repo/db/schema";
 import { ok, route } from "@/lib/api";
 import { requireSession } from "@/lib/auth/get-session";
 import { requireModuleAccess } from "@/lib/auth/guards";
@@ -16,11 +23,11 @@ export const GET = route(async (_request, context: Params) => {
   const session = await requireSession();
   const routeParams = await context.params;
   const moduleId = routeParams['moduleId']!;
-  const { applicationId } = await requireModuleAccess(moduleId, session);
+  const { projectId } = await requireModuleAccess(moduleId, session);
 
-  const [module, application, sessionRows] = await Promise.all([
+  const [module, project, sessionRows] = await Promise.all([
     db.select().from(modules).where(eq(modules.id, moduleId)).limit(1),
-    db.select().from(applications).where(eq(applications.id, applicationId)).limit(1),
+    db.select().from(projects).where(eq(projects.id, projectId)).limit(1),
     db
       .select()
       .from(discoverySessions)
@@ -31,10 +38,22 @@ export const GET = route(async (_request, context: Params) => {
 
   const latest = sessionRows[0] ?? null;
   if (!latest) {
-    throw new AppError("NOT_FOUND", "No discovery session has been started for this module", 404);
+    // The module exists but has never been crawled. This is a normal state, not a
+    // missing resource, so return an empty payload the page can render instead of
+    // a 404 that the poller would surface as a console error.
+    return ok({
+      session: null,
+      module: module?.[0] ?? null,
+      project: project?.[0] ?? null,
+      logs: [],
+      artifacts: [],
+      pages: [],
+      actions: [],
+      history: [],
+    });
   }
 
-  const [logs, artifacts, pages] = await Promise.all([
+  const [logs, artifacts, pages, actions] = await Promise.all([
     db
       .select()
       .from(discoveryLogs)
@@ -52,15 +71,21 @@ export const GET = route(async (_request, context: Params) => {
       .from(discoveredPages)
       .where(eq(discoveredPages.discoverySessionId, latest.id))
       .orderBy(asc(discoveredPages.order)),
+    db
+      .select()
+      .from(discoveredActions)
+      .where(eq(discoveredActions.discoverySessionId, latest.id))
+      .orderBy(asc(discoveredActions.createdAt)),
   ]);
 
   return ok({
     session: latest,
     module: module?.[0] ?? null,
-    application: application?.[0] ?? null,
+    project: project?.[0] ?? null,
     logs,
     artifacts,
     pages,
+    actions,
     history: sessionRows,
   });
 });

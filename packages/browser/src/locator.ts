@@ -1,4 +1,4 @@
-import type { Locator } from "playwright";
+import type { Locator, Page } from "playwright";
 
 /**
  * Locator priority (spec §15):
@@ -14,23 +14,43 @@ export interface LocatorHints {
   xpath?: string | null;
 }
 
-export function resolveLocator(page: import("playwright").Page, hints: LocatorHints): Locator {
+export async function resolveLocator(page: Page, hints: LocatorHints): Promise<Locator> {
+  const candidates: Array<() => Locator> = [];
   if (hints.testId) {
-    return page.getByTestId(hints.testId);
+    candidates.push(() => page.getByTestId(hints.testId as string));
   }
   if (hints.role && hints.name) {
+    const role = hints.role as Parameters<Page["getByRole"]>[0];
+    const name = hints.name;
     try {
-      return page.getByRole(hints.role as Parameters<Page["getByRole"]>[0], { name: hints.name, exact: false });
+      candidates.push(() => page.getByRole(role, { name, exact: false }));
     } catch {
-      // fall through to next priority
+      // invalid role string, fall through to next priority
     }
   }
   if (hints.label) {
-    return page.getByLabel(hints.label, { exact: false });
+    const label = hints.label;
+    candidates.push(() => page.getByLabel(label, { exact: false }));
   }
   if (hints.placeholder) {
-    return page.getByPlaceholder(hints.placeholder, { exact: false });
+    const placeholder = hints.placeholder;
+    candidates.push(() => page.getByPlaceholder(placeholder, { exact: false }));
   }
+
+  // Semantic hints are used only when they resolve to exactly one element;
+  // ambiguous matches (e.g. two "Home" links) throw strict-mode violations on click.
+  for (const make of candidates) {
+    const locator = make();
+    let count = 0;
+    try {
+      count = await locator.count();
+    } catch {
+      count = 0;
+    }
+    if (count === 1) return locator;
+  }
+
+  // Structural selectors are unique by construction (nth-child paths).
   if (hints.cssSelector) {
     return page.locator(hints.cssSelector).first();
   }
@@ -40,10 +60,12 @@ export function resolveLocator(page: import("playwright").Page, hints: LocatorHi
   if (hints.name) {
     return page.locator(`[name="${cssEscape(hints.name)}"]`).first();
   }
+
+  // Nothing unique: degrade to the first semantic candidate rather than crash.
+  const fallback = candidates[0];
+  if (fallback) return fallback().first();
   throw new Error("Unable to resolve locator: no hints provided");
 }
-
-type Page = import("playwright").Page;
 
 function cssEscape(value: string): string {
   return value.replace(/"/g, '\\"');

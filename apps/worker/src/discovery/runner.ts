@@ -1,9 +1,9 @@
 import { chromium, type Browser, type Page } from "playwright";
 import { createAIProvider, type AIProvider } from "@repo/ai";
-import { CredentialCrypto, createStorage, type StorageProvider } from "@repo/core";
+import { CredentialCrypto, createChildLogger, createStorage, type StorageProvider } from "@repo/core";
 import { analyzeCurrentPage, resolveLocator, type AnalyzedPage, type DetectedAction } from "@repo/browser";
 import type { Db } from "@repo/db";
-import { applications, credentials, modules, testDataSets } from "@repo/db/schema";
+import { credentials, modules, projects, testDataSets } from "@repo/db/schema";
 import { eq } from "drizzle-orm";
 import { env } from "../env";
 import type { WorkerEnv } from "../env";
@@ -11,13 +11,13 @@ import type { ActorContext, IndexedAction } from "./action-space";
 import { actionKey, buildActionSpace, decideOneAction } from "./action-space";
 import { DiscoveryStore, type ActionRecord } from "./store";
 import { captureEvidence } from "../evidence";
+import { buildModuleScope, describeScope, isInScope, type ModuleScope } from "./scope";
 import { buildWorkflows } from "../workflows/builder";
 import { generateTestCases } from "../test-generation/generator";
 
 export interface RunInput {
   discoverySessionId: string;
   moduleId: string;
-  applicationId: string;
   projectId: string;
   role?: string;
   db: Db;
@@ -33,12 +33,12 @@ export interface DecodedCredential {
 export interface DiscoveryContext {
   sessionId: string;
   moduleId: string;
-  applicationId: string;
   projectId: string;
   moduleName: string;
   moduleKeywords: string[];
   baseUrl: string;
-  applicationName: string;
+  scope: ModuleScope;
+  projectName: string;
   environment: string;
   credentials: DecodedCredential[];
   testData: Array<Record<string, string>>;
@@ -56,9 +56,10 @@ interface StepBudget {
 }
 
 const crypto = new CredentialCrypto();
+const log = createChildLogger({ scope: "discovery" });
 
 export async function runDiscovery(input: RunInput): Promise<void> {
-  const { discoverySessionId, moduleId, applicationId, projectId, db } = input;
+  const { discoverySessionId, moduleId, projectId, db } = input;
   const store = new DiscoveryStore(db, { sessionId: discoverySessionId, moduleId });
 
   let browser: Browser | null = null;
@@ -67,8 +68,8 @@ export async function runDiscovery(input: RunInput): Promise<void> {
     const [module] = await db.select().from(modules).where(eq(modules.id, moduleId)).limit(1);
     if (!module) throw new Error("Module not found");
 
-    const [application] = await db.select().from(applications).where(eq(applications.id, applicationId)).limit(1);
-    if (!application) throw new Error("Application not found");
+    const [project] = await db.select().from(projects).where(eq(projects.id, projectId)).limit(1);
+    if (!project) throw new Error("Project not found");
 
     const credentialRows = await db.select().from(credentials).where(eq(credentials.moduleId, moduleId));
     const dataSets = await db.select().from(testDataSets).where(eq(testDataSets.moduleId, moduleId));
@@ -76,18 +77,24 @@ export async function runDiscovery(input: RunInput): Promise<void> {
     const desiredRole = input.role ?? credentialRows[0]?.role ?? null;
     const decoded = credentialRows
       .filter((credential) => !input.role || credential.role === input.role)
-      .map(decodeCredential);
+      .map((credential) => decodeCredential(credential, moduleId));
+
+    const scope = buildModuleScope({
+      baseUrl: project.baseUrl,
+      startPath: module.startPath,
+      includePaths: module.includePaths,
+    });
 
     const ctx: DiscoveryContext = {
       sessionId: discoverySessionId,
       moduleId,
-      applicationId,
       projectId,
       moduleName: module.name,
       moduleKeywords: keywordize(module.name),
-      baseUrl: application.baseUrl,
-      applicationName: application.name,
-      environment: application.environment,
+      baseUrl: project.baseUrl,
+      scope,
+      projectName: project.name,
+      environment: project.environment,
       credentials: decoded.filter((credential) => credential.password !== null),
       testData: buildRowPool(dataSets.map((dataset) => dataset.data)),
       db,
@@ -102,8 +109,17 @@ export async function runDiscovery(input: RunInput): Promise<void> {
 
     await store.updateSession({ status: "RUNNING", startedAt: new Date(), error: null });
 
-    await store.log("event", `Discovery started for "${module.name}" (${application.environment}) using ${ctx.ai.label}.`);
+    await store.log("event", `Discovery started for "${module.name}" (${project.environment}) using ${ctx.ai.label}.`);
+    await store.log("event", `Module scope: ${describeScope(scope)} (start ${scope.startUrl}).`);
     await store.log("event", `Decrypted credentials available: ${ctx.credentials.map((credential) => credential.role).join(", ") || "none"}.`);
+    for (const credential of decoded) {
+      if (credential.password === null) {
+        await store.log(
+          "warn",
+          `Role "${credential.role}" has no usable password — set it in the module's Config tab to explore authenticated pages.`,
+        );
+      }
+    }
     await store.log("event", `Test data rows available: ${ctx.testData.length}.`);
 
     browser = await chromium.launch({ headless: env.BROWSER_HEADLESS });
@@ -135,10 +151,6 @@ export async function runDiscovery(input: RunInput): Promise<void> {
     });
 
     await db.update(modules).set({ discoveryStatus: "DISCOVERED", updatedAt: new Date() }).where(eq(modules.id, moduleId));
-    await db
-      .update(applications)
-      .set({ status: "DISCOVERED", updatedAt: new Date() })
-      .where(eq(applications.id, applicationId));
     await store.log(
       "event",
       `Discovery completed: ${budget.pages} pages, ${budget.actions} actions, ${budget.workflows} workflows.`,
@@ -147,7 +159,7 @@ export async function runDiscovery(input: RunInput): Promise<void> {
     const message = error instanceof Error ? error.message : String(error);
     await store.updateSession({ status: "FAILED", completedAt: new Date(), error: message, currentStep: null });
     await db.update(modules).set({ discoveryStatus: "FAILED", updatedAt: new Date() }).where(eq(modules.id, moduleId));
-    await db.update(applications).set({ status: "ERROR", updatedAt: new Date() }).where(eq(applications.id, applicationId));
+
     await store.log("error", `Discovery failed: ${message}`);
     throw error;
   } finally {
@@ -164,6 +176,7 @@ async function exploreAsRole(browser: Browser, ctx: DiscoveryContext, credential
   const visitedUrls = new Set<string>();
   const actor: ActorContext = {
     baseUrl: ctx.baseUrl,
+    scope: ctx.scope,
     moduleName: ctx.moduleName,
     moduleKeywords: ctx.moduleKeywords,
     roleUsername: credential.username || null,
@@ -171,6 +184,7 @@ async function exploreAsRole(browser: Browser, ctx: DiscoveryContext, credential
     testData: ctx.testData,
     visitedUrls,
     executedKeys: new Set<string>(),
+    skippedUrls: new Set<string>(),
     onLoginPage: false,
     fillCount: 0,
     navigationDepth: 0,
@@ -178,13 +192,13 @@ async function exploreAsRole(browser: Browser, ctx: DiscoveryContext, credential
   };
 
   try {
-    await page.goto(ctx.baseUrl, { waitUntil: "domcontentloaded" }).catch(() => undefined);
+    await page.goto(ctx.scope.startUrl, { waitUntil: "domcontentloaded" }).catch(() => undefined);
     const first = await analyzeCurrentPage(page, navOptions(ctx));
     if (first && looksLikeLogin(first)) {
       actor.onLoginPage = true;
       await ctx.store.log("event", `Login page detected at ${page.url()}; authenticating as "${credential.role}".`);
     } else {
-      await ctx.store.log("event", `No login required at ${page.url()}.`);
+      await ctx.store.log("event", `Started at ${page.url()} (no login required).`);
     }
 
     await explorePage(page, ctx, actor, budget, visitedUrls, 0);
@@ -193,6 +207,60 @@ async function exploreAsRole(browser: Browser, ctx: DiscoveryContext, credential
   } finally {
     await browserContext.close().catch(() => undefined);
   }
+}
+
+const SKIP_SAMPLE_SIZE = 5;
+
+/**
+ * Guard at the top of every page exploration: an out-of-scope URL is only
+ * tolerated when it is the application's login gate (a redirect the module
+ * must pass through to authenticate), never recorded as a module page.
+ */
+async function enterModuleScope(
+  page: Page,
+  ctx: DiscoveryContext,
+  actor: ActorContext,
+  currentUrl: string,
+): Promise<boolean> {
+  if (isInScope(ctx.scope, currentUrl)) return true;
+
+  const outside = await analyzeCurrentPage(page, navOptions(ctx));
+  if (outside && looksLikeLogin(outside)) {
+    actor.onLoginPage = true;
+    return true;
+  }
+
+  await noteSkippedUrl(ctx, actor, currentUrl);
+  await page.goto(ctx.scope.startUrl, { waitUntil: "domcontentloaded" }).catch(() => undefined);
+  return false;
+}
+
+async function noteSkippedUrl(ctx: DiscoveryContext, actor: ActorContext, url: string): Promise<void> {
+  if (actor.skippedUrls.has(url)) return;
+  actor.skippedUrls.add(url);
+  await ctx.store.log("info", `Skipped ${url} — outside module scope (${describeScope(ctx.scope)}).`);
+}
+
+/** One summary line per page listing the links that were deliberately not followed. */
+async function logSkippedLinks(ctx: DiscoveryContext, actor: ActorContext, actions: DetectedAction[]): Promise<void> {
+  const outside = actions.filter(
+    (action) =>
+      action.action === "NAVIGATE" &&
+      action.target.url &&
+      !isInScope(ctx.scope, action.target.url) &&
+      !actor.skippedUrls.has(action.target.url),
+  );
+  if (outside.length === 0) return;
+
+  for (const action of outside) {
+    if (action.target.url) actor.skippedUrls.add(action.target.url);
+  }
+  const sample = outside.slice(0, SKIP_SAMPLE_SIZE).map((action) => action.target.url);
+  const remainder = outside.length - sample.length;
+  await ctx.store.log(
+    "info",
+    `${outside.length} link(s) outside module scope not followed: ${sample.join(", ")}${remainder > 0 ? ` +${remainder} more` : ""}.`,
+  );
 }
 
 async function explorePage(
@@ -207,6 +275,8 @@ async function explorePage(
   if (visitedUrls.has(currentUrl) || depth > actor.navigationDepthBudget) return;
   visitedUrls.add(currentUrl);
   actor.navigationDepth = depth;
+
+  if (!(await enterModuleScope(page, ctx, actor, currentUrl))) return;
 
   const persistedActionKeys = new Set<string>();
   const finalizedPages = new Set<string>();
@@ -242,7 +312,10 @@ async function explorePage(
     actor.onLoginPage = looksLikeLogin(analyzed);
 
     const decision = decideOneAction(space, actor);
-    if (decision.index === null) break;
+    if (decision.index === null) {
+      await logSkippedLinks(ctx, actor, analyzed.actions);
+      break;
+    }
 
     const chosen = space.find((item) => item.index === decision.index);
     if (!chosen) break;
@@ -263,13 +336,27 @@ async function explorePage(
     if (actionRowId) writes.push(ctx.store.setExecuted(actionRowId));
     await Promise.all(writes);
 
-    if (!executed) continue;
+    if (!executed) {
+      // A failed action is consumed too: retrying it repeatedly (e.g. an
+      // ambiguous or vanished locator) would waste the whole step budget.
+      actor.executedKeys.add(actionKey(chosen.action));
+      actionsOnPage += 1;
+      continue;
+    }
 
     actor.executedKeys.add(actionKey(chosen.action));
     actionsOnPage += 1;
     if (decision.value !== undefined) actor.fillCount += 1;
 
     if (page.url() !== stepStartUrl) {
+      // A link that leaves the module scope is never recorded or crawled; the
+      // run returns to the module start path and keeps exploring the module.
+      if (!isInScope(ctx.scope, page.url())) {
+        await noteSkippedUrl(ctx, actor, page.url());
+        await page.goto(ctx.scope.startUrl, { waitUntil: "domcontentloaded" }).catch(() => undefined);
+        continue;
+      }
+
       const nextPageId = await findOrCreateNextPage(page, ctx, visitedUrls, budget, finalizedPages);
       if (nextPageId) {
         await ctx.store.insertTransition({
@@ -389,7 +476,7 @@ export async function executeOne(
   decision: { kind: string; value?: string },
 ): Promise<boolean> {
   try {
-    const locator = resolveLocator(page, chosen.selector);
+    const locator = await resolveLocator(page, chosen.selector);
     await locator.waitFor({ state: "visible", timeout: 6000 }).catch(() => undefined);
 
     if (chosen.operation === "FILL") {
@@ -424,17 +511,40 @@ export async function executeOne(
 
 // ---------- helpers ----------
 
-function decodeCredential(credential: { id: string; role: string; username: string; secretData: string }): DecodedCredential {
-  const scopedKey = `module:${credential.username}`;
+/**
+ * Decrypt a stored credential.
+ *
+ * The encryption scope must match apps/web/app/api/modules/[moduleId]/credentials/route.ts,
+ * which encrypts with the module id. `secretData` holds "iv:authTag:ciphertext", not JSON,
+ * so a JSON parse is only attempted to detect seeded placeholder rows.
+ */
+function decodeCredential(
+  credential: { id: string; role: string; username: string; secretData: string },
+  moduleId: string,
+): DecodedCredential {
+  const base = { id: credential.id, role: credential.role, username: credential.username, password: null };
+
+  if (isPlaceholderSecret(credential.secretData)) return base;
+
   try {
-    const parsed = JSON.parse(credential.secretData) as unknown;
-    if (parsed && typeof parsed === "object" && "placeholder" in parsed) {
-      return { id: credential.id, role: credential.role, username: credential.username, password: null };
-    }
-    const decrypted = crypto.decryptCredentials(scopedKey, credential.secretData);
-    return { id: credential.id, role: credential.role, username: credential.username, password: decrypted?.password ?? null };
+    const decrypted = crypto.decryptCredentials(moduleId, credential.secretData);
+    return decrypted?.password ? { ...base, password: decrypted.password } : base;
+  } catch (error) {
+    log.warn(
+      { role: credential.role, error },
+      "credential decryption failed",
+    );
+    return base;
+  }
+}
+
+function isPlaceholderSecret(secretData: string): boolean {
+  try {
+    const parsed: unknown = JSON.parse(secretData);
+    return typeof parsed === "object" && parsed !== null && "placeholder" in parsed;
   } catch {
-    return { id: credential.id, role: credential.role, username: credential.username, password: null };
+    // Ciphertext is not JSON, so it is a real (encrypted) credential.
+    return false;
   }
 }
 

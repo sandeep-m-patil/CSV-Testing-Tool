@@ -11,16 +11,16 @@ const log = createChildLogger({ scope: "discovery-processor" });
  * indexed action-space discovery loop for the module.
  */
 export async function processDiscoveryJob(job: Job<DiscoveryJobData>): Promise<void> {
-  const { discoverySessionId, moduleId, applicationId, projectId, role } = job.data;
+  const { discoverySessionId, moduleId, projectId, role } = job.data;
   const db = getDb();
 
   log.info(
-    { jobId: job.id, discoverySessionId, moduleId, applicationId, role: role ?? null },
+    { jobId: job.id, discoverySessionId, moduleId, role: role ?? null },
     "processing discovery job",
   );
 
   try {
-    await runDiscovery({ discoverySessionId, moduleId, applicationId, projectId, role, db });
+    await runDiscovery({ discoverySessionId, moduleId, projectId, role, db });
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     log.error({ jobId: job.id, discoverySessionId, moduleId, error: message }, "discovery job failed");

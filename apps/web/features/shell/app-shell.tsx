@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 import { useState } from "react";
 import Link from "next/link";
@@ -9,6 +9,7 @@ import { useLogout, useMe } from "@/lib/hooks";
 import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
 import { Skeleton } from "@/components/ui/skeleton";
+import { ThemeToggle } from "@/features/theme/theme-toggle";
 
 const NAV = [
   { href: "/projects", label: "Projects", icon: FolderKanban },
@@ -53,6 +54,9 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         })}
       </nav>
       <div className="border-t border-slate-800 p-3">
+        <div className="mb-3 flex justify-center">
+          <ThemeToggle align="start" />
+        </div>
         <div className="flex items-center gap-3">
           <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-slate-700 text-xs font-semibold uppercase">
             {data?.user.name?.slice(0, 2) ?? "U"}
@@ -80,10 +84,10 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   );
 
   return (
-    <div className="min-h-screen bg-slate-50">
-      <div className="hidden lg:fixed lg:inset-y-0 lg:left-0 lg:z-30 lg:block lg:w-64">{sidebar}</div>
+    <div className="min-h-screen bg-background text-foreground">
+      <div className="no-print hidden lg:fixed lg:inset-y-0 lg:left-0 lg:z-30 lg:block lg:w-64">{sidebar}</div>
 
-      <header className="sticky top-0 z-20 flex h-14 items-center gap-3 border-b bg-white px-4 lg:hidden">
+      <header className="no-print sticky top-0 z-20 flex h-14 items-center gap-3 border-b bg-background px-4 lg:hidden">
         <Button variant="ghost" size="icon" aria-label="Open menu" onClick={() => setMobileOpen((value) => !value)}>
           {mobileOpen ? <X className="h-5 w-5" /> : <Menu className="h-5 w-5" />}
         </Button>
@@ -92,11 +96,14 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           Autotest
         </Link>
         {!data && <Skeleton className="ml-auto h-4 w-20" />}
-        {data && <p className="ml-auto text-xs text-muted-foreground">{data.user.name}</p>}
+        <div className="ml-auto flex items-center gap-2">
+          {data && <p className="hidden text-xs text-muted-foreground sm:inline">{data.user.name}</p>}
+          <ThemeToggle />
+        </div>
       </header>
 
       {mobileOpen && (
-        <div className="fixed inset-0 z-40 lg:hidden" role="dialog" aria-modal="true">
+        <div className="no-print fixed inset-0 z-40 lg:hidden" role="dialog" aria-modal="true">
           <div className="fixed inset-0 bg-slate-900/50" onClick={() => setMobileOpen(false)} />
           <div className="absolute inset-y-0 left-0 w-64 bg-slate-900">{sidebar}</div>
         </div>

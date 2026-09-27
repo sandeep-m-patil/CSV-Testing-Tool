@@ -1,5 +1,6 @@
 import type { CollectedElement, DetectedAction } from "@repo/browser";
 import type { LocatorHints } from "@repo/browser";
+import { isInScope, type ModuleScope } from "./scope";
 
 export interface IndexedAction {
   index: number;
@@ -56,6 +57,7 @@ function actionLabel(action: DetectedAction): string {
 
 export interface ActorContext {
   baseUrl: string;
+  scope: ModuleScope;
   moduleName: string;
   moduleKeywords: string[];
   roleUsername: string | null;
@@ -63,6 +65,7 @@ export interface ActorContext {
   testData: Array<Record<string, string>>;
   visitedUrls: Set<string>;
   executedKeys: Set<string>;
+  skippedUrls: Set<string>;
   onLoginPage: boolean;
   fillCount: number;
   navigationDepth: number;
@@ -137,6 +140,7 @@ export function decideOneAction(space: IndexedAction[], ctx: ActorContext): Acto
         item.operation === "NAVIGATE" &&
         !item.action.blocked &&
         item.action.target.url &&
+        isInScope(ctx.scope, item.action.target.url) &&
         !ctx.visitedUrls.has(item.action.target.url) &&
         !ctx.executedKeys.has(actionKey(item.action)) &&
         ctx.navigationDepth < ctx.navigationDepthBudget,

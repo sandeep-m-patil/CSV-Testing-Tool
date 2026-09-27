@@ -17,29 +17,52 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/input";
 
-export function ModuleForm({ applicationId, onDone }: { applicationId: string; onDone?: () => void }) {
+const MAX_INCLUDE_PATHS = 25;
+
+/** "materials, /materials/new" -> ["/materials", "/materials/new"] (validated by the API schema). */
+function parsePathList(value: string): string[] {
+  return value
+    .split(",")
+    .map((part) => part.trim())
+    .filter((part) => part !== "")
+    .map((part) => (part.startsWith("/") ? part : `/${part}`))
+    .slice(0, MAX_INCLUDE_PATHS);
+}
+
+export function ModuleForm({ projectId, onDone }: { projectId: string; onDone?: () => void }) {
   const router = useRouter();
   const queryClient = useQueryClient();
   const [submitting, setSubmitting] = useState(false);
+  const [includePathsText, setIncludePathsText] = useState("");
 
   const {
     register,
     handleSubmit,
+    setValue,
     formState: { errors, touchedFields },
   } = useForm<CreateModuleInput>({
     resolver: zodResolver(CreateModuleInputSchema),
-    defaultValues: { applicationId, name: "", description: "" },
+    defaultValues: { projectId, name: "", description: "", includePaths: [] },
   });
+
+  const startPathField = register("startPath");
 
   async function onSubmit(values: CreateModuleInput) {
     setSubmitting(true);
     try {
-      const data = await apiFetch<{ module: { id: string } }>(`/api/applications/${applicationId}/modules`, {
+      const data = await apiFetch<{ module: { id: string } }>(`/api/projects/${projectId}/modules`, {
         method: "POST",
-        body: JSON.stringify(values),
+        body: JSON.stringify({
+          ...values,
+          includePaths: parsePathList(includePathsText),
+        }),
       });
       toast.success("Module added");
-      await queryClient.invalidateQueries({ queryKey: queryKeys.modules(applicationId) });
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: queryKeys.modules(projectId) }),
+        queryClient.invalidateQueries({ queryKey: queryKeys.project(projectId) }),
+        queryClient.invalidateQueries({ queryKey: queryKeys.modulesHub }),
+      ]);
       if (onDone) {
         onDone();
       } else {
@@ -56,7 +79,7 @@ export function ModuleForm({ applicationId, onDone }: { applicationId: string; o
     <Card>
       <CardHeader>
         <CardTitle className="text-lg">Module details</CardTitle>
-        <CardDescription>Modules are the areas of the application you want to test — e.g. Login, Checkout, Material Review.</CardDescription>
+        <CardDescription>Modules are the areas of the project you want to test — e.g. Login, Checkout, Material Review.</CardDescription>
       </CardHeader>
       <CardContent>
         <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
@@ -69,6 +92,42 @@ export function ModuleForm({ applicationId, onDone }: { applicationId: string; o
             <Label htmlFor="module-description">Description</Label>
             <Textarea id="module-description" placeholder="Create and manage laboratory materials…" {...register("description")} />
           </div>
+
+          <div className="space-y-2 rounded-lg border bg-muted/10 p-3">
+            <div className="space-y-2">
+              <Label htmlFor="module-start-path">Start path</Label>
+              <Input
+                id="module-start-path"
+                placeholder="/materials"
+                {...startPathField}
+                onChange={(event) => {
+                  startPathField.onChange(event);
+                  const value = event.target.value.trim();
+                  if (value !== "" && !value.startsWith("/")) {
+                    setValue("startPath", `/${value}`, { shouldValidate: true });
+                  }
+                }}
+              />
+              <p className="text-xs text-muted-foreground">
+                Discovery starts here and never leaves these paths. Leave empty to start at the project base URL.
+              </p>
+              <FormFieldError error={errors.startPath} touched={touchedFields.startPath} />
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="module-include-paths">Extra in-scope paths</Label>
+              <Input
+                id="module-include-paths"
+                placeholder="/materials, /materials/new"
+                value={includePathsText}
+                onChange={(event) => setIncludePathsText(event.target.value)}
+              />
+              <p className="text-xs text-muted-foreground">
+                Comma-separated. Links to anything else (other modules) are listed as skipped, never crawled.
+              </p>
+            </div>
+          </div>
+
           <div className="flex justify-end gap-2">
             {!onDone && (
               <Button type="button" variant="outline" onClick={() => router.back()}>

@@ -252,6 +252,7 @@ function collectInPage(): PageSnapshot {
 
 export async function snapshotPage(page: Page, options: PageSnapshotOptions = {}): Promise<PageSnapshot> {
   void options;
+  await ensureRuntimeHelpers(page);
   return page.evaluate(collectInPage);
 }
 
@@ -261,4 +262,19 @@ export async function safeSnapshot(page: Page, options: PageSnapshotOptions = {}
   } catch {
     return null;
   }
+}
+
+/**
+ * esbuild's keepNames injects `__name(fn, "fnName")` statements that Playwright
+ * serializes into the collector's source. The helper lives in module scope, so it
+ * is undefined once the serialized function runs inside the page. Provide it as a
+ * global so the injected annotation resolves in the page context.
+ */
+async function ensureRuntimeHelpers(page: Page): Promise<void> {
+  await page.evaluate(() => {
+    const globalObject = globalThis as unknown as Record<string, unknown>;
+    if (globalObject.__name === undefined) {
+      globalObject.__name = (fn: unknown) => fn;
+    }
+  });
 }

@@ -1,7 +1,8 @@
-"use client";
+﻿"use client";
 
 import Link from "next/link";
 import { useParams } from "next/navigation";
+import { useState } from "react";
 import { ArrowLeft, Globe, Plus, TestTube2 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -10,11 +11,16 @@ import { Progress } from "@/components/ui/progress";
 import { Skeleton } from "@/components/ui/skeleton";
 import { formatDate, titleCase } from "@/lib/utils";
 import { useProjectDetail } from "@/features/hooks";
+import { DeleteProjectButton } from "@/features/projects/delete-project-button";
+import { ProvisionProjectButton } from "@/features/projects/provision-project-button";
+import { ModuleForm } from "@/features/modules/module-form";
+import { discoveryStatusVariant } from "@/lib/status";
 
 export default function ProjectDetailPage() {
   const params = useParams<{ projectId: string }>();
   const projectId = params.projectId;
   const { data, isLoading } = useProjectDetail(projectId);
+  const [addingModule, setAddingModule] = useState(false);
 
   if (isLoading) {
     return (
@@ -29,7 +35,7 @@ export default function ProjectDetailPage() {
     return <ProjectMissing />;
   }
 
-  const { project, applications, modules } = data;
+  const { project, modules } = data;
   const discoveredModules = modules.filter((module) => module.discoveryStatus === "DISCOVERED");
 
   return (
@@ -46,68 +52,41 @@ export default function ProjectDetailPage() {
             </p>
           </div>
         </div>
-        <Link href={`/projects/${projectId}/applications/new`}>
-          <Button>
+        <div className="flex items-center gap-2">
+          <ProvisionProjectButton projectId={projectId} />
+          <Button onClick={() => setAddingModule((value) => !value)}>
             <Plus className="h-4 w-4" />
-            Add Application
+            Add Module
           </Button>
-        </Link>
+          <DeleteProjectButton projectId={projectId} projectName={project.name} redirectTo="/projects" />
+        </div>
       </div>
 
-      <div className="grid gap-4 sm:grid-cols-3">
-        <MetricCard label="Applications" value={applications.length} />
+      <Card>
+        <CardContent className="flex flex-wrap items-center gap-4 p-4 text-sm">
+          <span className="flex items-center gap-2 text-muted-foreground">
+            <Globe className="h-4 w-4" />
+            {project.baseUrl}
+          </span>
+          <Badge variant={environmentBadgeVariant(project.environment)}>{titleCase(project.environment)}</Badge>
+        </CardContent>
+      </Card>
+
+      {addingModule && (
+        <ModuleForm projectId={projectId} onDone={() => setAddingModule(false)} />
+      )}
+
+      <div className="grid gap-4 sm:grid-cols-2">
         <MetricCard label="Modules" value={modules.length} />
         <MetricCard label="Discovered" value={`${discoveredModules.length}/${modules.length}`} />
       </div>
-
-      <section>
-        <h2 className="mb-3 text-lg font-semibold">Applications</h2>
-        {applications.length === 0 && (
-          <Card className="border-dashed text-center">
-            <CardContent className="p-8">
-              <Globe className="mx-auto mb-2 h-8 w-8 text-muted-foreground" />
-              <p className="text-sm text-muted-foreground">
-                No applications yet.{" "}
-                <Link href={`/projects/${projectId}/applications/new`} className="text-primary hover:underline">
-                  Add your first application
-                </Link>
-              </p>
-            </CardContent>
-          </Card>
-        )}
-        <div className="grid gap-4 sm:grid-cols-2">
-          {applications.map((application) => (
-            <Link key={application.id} href={`/projects/${projectId}/applications/${application.id}`}>
-              <Card className="h-full transition-shadow hover:shadow-md">
-                <CardHeader>
-                  <div className="flex items-center justify-between gap-2">
-                    <CardTitle className="text-base">{application.name}</CardTitle>
-                    <Badge variant={environmentBadgeVariant(application.environment)}>{titleCase(application.environment)}</Badge>
-                  </div>
-                  <CardDescription className="line-clamp-1">{application.baseUrl}</CardDescription>
-                </CardHeader>
-                <CardContent>
-                  <div className="mb-2 flex items-center justify-between text-xs text-muted-foreground">
-                    <span>{modules.filter((module) => module.applicationId === application.id).length} modules</span>
-                    <span className="font-medium">{application.status}</span>
-                  </div>
-                  <Progress
-                    value={moduleProgress(modules, application.id)}
-                    className="bg-muted"
-                  />
-                </CardContent>
-              </Card>
-            </Link>
-          ))}
-        </div>
-      </section>
 
       <section>
         <h2 className="mb-3 text-lg font-semibold">Modules</h2>
         {modules.length === 0 && (
           <Card className="border-dashed">
             <CardContent className="p-8 text-center text-sm text-muted-foreground">
-              Add an application first, then define its modules.
+              No modules yet. Add your first module to start discovery.
             </CardContent>
           </Card>
         )}
@@ -116,17 +95,17 @@ export default function ProjectDetailPage() {
             {modules.map((module) => (
               <Link key={module.id} href={`/modules/${module.id}`}>
                 <Card className="h-full transition-shadow hover:shadow-md">
-                  <CardContent className="flex items-center justify-between p-4">
+                  <CardContent className="flex items-center justify-between gap-3 p-4">
                     <div className="flex items-center gap-3">
-                      <div className="flex h-8 w-8 items-center justify-center rounded-md bg-primary/10">
-                        <TestTube2 className="h-4 w-4 text-primary" />
+                      <div className="flex h-8 w-8 items-center justify-center rounded-md bg-muted">
+                        <TestTube2 className="h-4 w-4 text-foreground" />
                       </div>
                       <div>
                         <p className="text-sm font-medium">{module.name}</p>
-                        <p className="text-xs text-muted-foreground">{module.applicationName}</p>
+                        <p className="text-xs text-muted-foreground">{module.startPath || "/"}</p>
                       </div>
                     </div>
-                    <Badge variant={statusBadgeVariant(module.discoveryStatus)}>{module.discoveryStatus}</Badge>
+                    <Badge variant={discoveryStatusVariant(module.discoveryStatus)}>{module.discoveryStatus}</Badge>
                   </CardContent>
                 </Card>
               </Link>
@@ -134,6 +113,18 @@ export default function ProjectDetailPage() {
           </div>
         )}
       </section>
+
+      {modules.length > 0 && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base">Discovery progress</CardTitle>
+            <CardDescription>{moduleProgress(modules)}% of modules discovered.</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <Progress value={moduleProgress(modules)} className="bg-muted" />
+          </CardContent>
+        </Card>
+      )}
     </div>
   );
 }
@@ -149,24 +140,16 @@ function MetricCard({ label, value }: { label: string; value: number | string })
   );
 }
 
-function moduleProgress(modules: Array<{ applicationId: string; discoveryStatus: string }>, applicationId: string): number {
-  const related = modules.filter((module) => module.applicationId === applicationId);
-  if (related.length === 0) return 0;
-  const discovered = related.filter((module) => module.discoveryStatus === "DISCOVERED").length;
-  return Math.round((discovered / related.length) * 100);
+function moduleProgress(modules: Array<{ discoveryStatus: string }>): number {
+  if (modules.length === 0) return 0;
+  const discovered = modules.filter((module) => module.discoveryStatus === "DISCOVERED").length;
+  return Math.round((discovered / modules.length) * 100);
 }
 
 function environmentBadgeVariant(environment: string): "success" | "warning" | "destructive" | "muted" {
   if (environment === "production") return "destructive";
   if (environment === "staging") return "warning";
   if (environment === "qa") return "success";
-  return "muted";
-}
-
-function statusBadgeVariant(status: string): "success" | "warning" | "destructive" | "muted" {
-  if (status === "DISCOVERED") return "success";
-  if (status === "DISCOVERING") return "warning";
-  if (status === "FAILED") return "destructive";
   return "muted";
 }
 

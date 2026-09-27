@@ -1,7 +1,6 @@
 export * from "./auth";
 export * from "./common";
 export * from "./project";
-export * from "./application";
 export * from "./module";
 export * from "./config";
 export * from "./discovery";

@@ -14,6 +14,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { FormFieldError } from "@/components/ui/form";
+import { ThemeToggle } from "@/features/theme/theme-toggle";
 
 export default function LoginPage() {
   const router = useRouter();
@@ -40,11 +41,14 @@ export default function LoginPage() {
   }
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-gradient-to-b from-slate-50 to-slate-100 p-6">
+    <div className="relative flex min-h-screen items-center justify-center bg-background p-6">
+      <div className="absolute right-4 top-4">
+        <ThemeToggle />
+      </div>
       <Card className="w-full max-w-md">
         <CardHeader>
           <CardTitle className="text-2xl">Sign in</CardTitle>
-          <CardDescription>Autotest — autonomous web application testing platform</CardDescription>
+          <CardDescription>Autotest - autonomous web application testing platform</CardDescription>
         </CardHeader>
         <CardContent>
           <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">

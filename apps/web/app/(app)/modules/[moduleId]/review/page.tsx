@@ -82,7 +82,7 @@ function WorkflowList({ workflows, loading }: { workflows: WorkflowRecord[]; loa
   return (
     <div className="grid gap-3 lg:grid-cols-2">
       {workflows.map((workflow) => (
-        <article key={workflow.id} className="rounded-xl border bg-white p-4">
+        <article key={workflow.id} className="rounded-xl border bg-card p-4">
           <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
             <h3 className="flex items-center gap-2 font-semibold">
               <GitBranch className="h-4 w-4 text-primary" />
@@ -128,7 +128,7 @@ function TestCaseList({ testCases, loading }: { testCases: TestCaseRecord[]; loa
   if (testCases.length === 0) return <Empty text="No test cases generated yet." />;
 
   return (
-    <div className="overflow-hidden rounded-xl border bg-white">
+    <div className="overflow-hidden rounded-xl border bg-card">
       {testCases.map((test, index) => (
         <div key={test.id} className={`p-4 ${index % 2 === 0 ? "bg-muted/10" : ""} ${index !== testCases.length - 1 ? "border-b" : ""}`}>
           <div className="mb-2 flex flex-wrap items-center gap-2">

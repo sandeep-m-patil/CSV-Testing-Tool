@@ -8,9 +8,9 @@ export async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> 
     credentials: "same-origin",
   });
 
-  const payload = (await response.json().catch(() => null)) as
-    | { data?: T; error?: { message?: string; code?: string } }
-    | null;
+  // 204 (and HEAD) have no body, and .json() throws synchronously on them.
+  const hasBody = response.status !== 204 && response.status !== 205 && response.status !== 304;
+  const payload = hasBody ? await readJson(response) : null;
 
   if (!response.ok) {
     throw new ApiError(
@@ -21,9 +21,22 @@ export async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> 
   }
 
   if (payload && "data" in payload && payload.data !== undefined) {
-    return payload.data;
+    return payload.data as T;
   }
-  return payload as T;
+  return payload as T | null as T;
+}
+
+async function readJson(response: Response): Promise<Envelope | null> {
+  try {
+    return (await response.json()) as Envelope;
+  } catch {
+    return null;
+  }
+}
+
+interface Envelope {
+  data?: unknown;
+  error?: { message?: string; code?: string };
 }
 
 export class ApiError extends Error {

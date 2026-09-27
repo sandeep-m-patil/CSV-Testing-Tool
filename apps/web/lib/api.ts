@@ -13,7 +13,9 @@ export function created<T>(data: T): Promise<NextResponse> {
 }
 
 export function noContent(): NextResponse {
-  return NextResponse.json({}, { status: 204 });
+  // A 204 must not carry a body: NextResponse.json(...) would throw
+  // "Response constructor: Invalid response status code 204".
+  return new NextResponse(null, { status: 204 });
 }
 
 export async function handleError(error: unknown): Promise<NextResponse> {

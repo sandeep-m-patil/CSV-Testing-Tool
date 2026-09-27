@@ -11,7 +11,6 @@ export const DISCOVERY_JOB_NAME = "run-module-discovery";
 export interface DiscoveryJobData {
   discoverySessionId: string;
   moduleId: string;
-  applicationId: string;
   projectId: string;
   role?: string;
 }

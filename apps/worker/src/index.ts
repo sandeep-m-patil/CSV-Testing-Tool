@@ -1,6 +1,6 @@
+import { env } from "./env";
 import { closeAll } from "@repo/db";
 import { createDiscoveryWorker, createChildLogger, logger, DISCOVERY_JOB_NAME } from "@repo/core";
-import { env } from "./env";
 import { processDiscoveryJob } from "./processor";
 
 const log = createChildLogger({ scope: "worker-bootstrap" });

@@ -29,7 +29,7 @@ export function DiscoverModuleButton({ moduleId, moduleName }: { moduleId: strin
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: queryKeys.module(moduleId) }),
         queryClient.invalidateQueries({ queryKey: queryKeys.discovery(moduleId) }),
-        queryClient.invalidateQueries({ queryKey: ["applications"] }),
+        queryClient.invalidateQueries({ queryKey: queryKeys.projects }),
       ]);
       router.push(`/modules/${moduleId}/discovery?session=${data.discoverySession.id}`);
     } catch (error) {

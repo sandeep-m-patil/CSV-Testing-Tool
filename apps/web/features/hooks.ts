@@ -3,22 +3,20 @@
 import { useQuery } from "@tanstack/react-query";
 import { apiFetch } from "@/lib/api-client";
 import { queryKeys } from "@/lib/query-keys";
-import type { Application, Project } from "@repo/schemas";
+import type { Project } from "@repo/schemas";
 import type { Module } from "@repo/schemas";
 
-export interface ProjectRow extends Project {
-  applicationsCount?: number;
-}
+export type ProjectRow = Project;
 
 export interface ModuleRow extends Module {
-  applicationName?: string;
+  projectName?: string;
   environment?: string;
   baseUrl?: string;
 }
 
 export interface ModuleDetail {
   module: Module;
-  application: Application | null;
+  project: Project | null;
   projectId: string;
   credentials: Array<{ id: string; role: string; username: string; hasSecret: boolean }>;
   testDataSets: Array<{ id: string; name: string; dataType: string; data: unknown }>;
@@ -46,7 +44,7 @@ export function useProjectDetail(projectId: string) {
   return useQuery({
     queryKey: queryKeys.project(projectId),
     queryFn: () =>
-      apiFetch<{ project: ProjectRow | null; applications: Application[]; modules: ModuleRow[] }>(
+      apiFetch<{ project: ProjectRow | null; modules: ModuleRow[] }>(
         `/api/projects/${projectId}/detail`,
       ),
     enabled: Boolean(projectId),
@@ -55,7 +53,7 @@ export function useProjectDetail(projectId: string) {
 
 export function useModulesHub() {
   return useQuery({
-    queryKey: ["modules-hub"],
+    queryKey: queryKeys.modulesHub,
     queryFn: () => apiFetch<{ modules: ModuleRow[] }>("/api/modules"),
     select: (data) => data.modules,
   });
@@ -81,9 +79,9 @@ export interface DiscoveryProgress {
     startedAt: string | null;
     completedAt: string | null;
     error: string | null;
-  };
+  } | null;
   module: Module | null;
-  application: { name: string; baseUrl: string; environment: string } | null;
+  project: { name: string; baseUrl: string; environment: string } | null;
   logs: Array<{ id: string; level: string; message: string; createdAt: string }>;
   artifacts: Array<{
     id: string;
@@ -91,9 +89,37 @@ export interface DiscoveryProgress {
     storageKey: string;
     url: string | null;
     label: string;
+    pageId: string | null;
+    actionId: string | null;
     createdAt: string;
   }>;
-  pages: Array<{ id: string; name: string; url: string; title: string; pageType: string }>;
+  pages: Array<{
+    id: string;
+    name: string;
+    url: string;
+    title: string;
+    pageType: string;
+    order: number;
+  }>;
+  actions: Array<{
+    id: string;
+    pageId: string;
+    action: string;
+    target: {
+      elementType?: string;
+      role?: string;
+      name?: string;
+      text?: string;
+      label?: string;
+      placeholder?: string;
+      testId?: string;
+      url?: string;
+    };
+    dangerous: boolean;
+    blocked: boolean;
+    executed: boolean;
+    createdAt: string;
+  }>;
   history: Array<{ id: string; status: string; createdAt: string }>;
 }
 
@@ -103,10 +129,13 @@ export function useDiscovery(moduleId: string, options: { enabled?: boolean; ref
     queryFn: () => apiFetch<DiscoveryProgress>(`/api/modules/${moduleId}/discovery`),
     enabled: options.enabled ?? Boolean(moduleId),
     refetchInterval: (query) => {
-      if (!query.state.data || query.state.error) {
+      if (query.state.error) {
         return options.refetchMs ?? 3000;
       }
-      const status = query.state.data.session.status;
+      const status = query.state.data?.session?.status;
+      if (!status) {
+        return false;
+      }
       if (status === "RUNNING" || status === "QUEUED") {
         return options.refetchMs ?? 2000;
       }
@@ -128,6 +157,7 @@ export interface WorkflowRecord {
   status: string;
   source: string;
   confidence: string;
+  discoverySessionId?: string | null;
 }
 
 export function useWorkflows(moduleId: string) {
@@ -164,7 +194,7 @@ export function useTestCases(moduleId: string) {
 
 export interface ModuleReport {
   report: {
-    application: { name: string; baseUrl: string; environment: string };
+    project: { name: string; baseUrl: string; environment: string };
     module: { id: string; name: string; discoveryStatus: string };
     discovery: { sessionId: string; status: string; startedAt: string | null; completedAt: string | null; error: string | null } | null;
     counts: {

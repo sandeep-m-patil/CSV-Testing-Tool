@@ -1,6 +1,6 @@
 import { and, count, desc, eq } from "drizzle-orm";
 import {
-  applications,
+  projects,
   credentials,
   discoveredActions,
   discoveredElements,
@@ -24,15 +24,15 @@ export const GET = route(async (_request, context: Params) => {
   const session = await requireSession();
   const routeParams = await context.params;
 const moduleId = routeParams['moduleId']!;
-  const { applicationId } = await requireModuleAccess(moduleId, session);
+  const { projectId } = await requireModuleAccess(moduleId, session);
 
-  const [module, application, latestSession] = await Promise.all([
+  const [module, project, latestSession] = await Promise.all([
     db.select().from(modules).where(eq(modules.id, moduleId)).limit(1),
-    db.select().from(applications).where(eq(applications.id, applicationId)).limit(1),
+    db.select().from(projects).where(eq(projects.id, projectId)).limit(1),
     db.select().from(discoverySessions).where(eq(discoverySessions.moduleId, moduleId)).orderBy(desc(discoverySessions.createdAt)).limit(1),
   ]);
 
-  if (!module[0] || !application[0]) {
+  if (!module[0] || !project[0]) {
     throw new AppError("NOT_FOUND", "Module not found", 404);
   }
 
@@ -54,7 +54,7 @@ const moduleId = routeParams['moduleId']!;
 
   return ok({
     report: {
-      application: { name: application[0].name, baseUrl: application[0].baseUrl, environment: application[0].environment },
+      project: { name: project[0].name, baseUrl: project[0].baseUrl, environment: project[0].environment },
       module: { id: module[0].id, name: module[0].name, discoveryStatus: module[0].discoveryStatus },
       discovery: latest
         ? {

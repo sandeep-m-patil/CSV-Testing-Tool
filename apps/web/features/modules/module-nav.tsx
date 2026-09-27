@@ -4,13 +4,16 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { ArrowLeft } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { discoveryStatusVariant } from "@/lib/status";
 import { Badge } from "@/components/ui/badge";
+import { DeleteModuleButton } from "@/features/modules/delete-module-button";
 
 const TABS = [
   { key: "overview", label: "Overview" },
   { key: "config", label: "Credentials & Data" },
   { key: "discovery", label: "Discovery" },
   { key: "review", label: "Review" },
+  { key: "report", label: "Report" },
 ] as const;
 
 export function ModuleNav({
@@ -41,7 +44,10 @@ export function ModuleNav({
             <p className="text-sm text-muted-foreground">Module workspace — configuration, discovery, and review.</p>
           </div>
         </div>
-        <Badge variant={statusVariant(status)}>{status}</Badge>
+        <div className="flex items-center gap-1.5">
+          <Badge variant={discoveryStatusVariant(status)}>{status}</Badge>
+          <DeleteModuleButton moduleId={moduleId} moduleName={moduleName} />
+        </div>
       </div>
       <nav className="flex gap-1 overflow-x-auto rounded-lg bg-muted p-1">
         {TABS.map((tab) => {
@@ -63,11 +69,4 @@ export function ModuleNav({
       </nav>
     </div>
   );
-}
-
-function statusVariant(status: string): "success" | "warning" | "destructive" | "muted" {
-  if (status === "DISCOVERED") return "success";
-  if (status === "DISCOVERING") return "warning";
-  if (status === "FAILED") return "destructive";
-  return "muted";
 }

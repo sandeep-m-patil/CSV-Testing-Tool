@@ -31,7 +31,14 @@ const projectId = routeParams['projectId']!;
   const input = UpdateProjectInputSchema.parse(await parseBody(request));
   const [project] = await db
     .update(projects)
-    .set({ name: input.name, description: input.description ?? null, updatedAt: new Date() })
+    .set({
+      name: input.name,
+      description: input.description ?? null,
+      baseUrl: input.baseUrl,
+      environment: input.environment,
+      productionConfirmed: input.productionConfirmed,
+      updatedAt: new Date(),
+    })
     .where(eq(projects.id, projectId))
     .returning();
 

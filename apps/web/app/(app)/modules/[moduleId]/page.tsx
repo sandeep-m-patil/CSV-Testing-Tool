@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useParams } from "next/navigation";
-import { Activity, ArrowRight, FileCode2, GitBranch, Layers, Radar, ShieldAlert, Table2 } from "lucide-react";
+import { Activity, ArrowRight, FileCode2, FileText, GitBranch, Layers, Radar, ShieldAlert, Table2 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -12,6 +12,15 @@ import { formatDate } from "@/lib/utils";
 import { useModuleDetail, useModuleReport } from "@/features/hooks";
 import { ModuleNav } from "@/features/modules/module-nav";
 import { DiscoverModuleButton } from "@/features/discovery/discover-button";
+
+const SCOPED_PROJECT_NOTICE = "no path set — whole site";
+
+function describeScope(startPath: string | null | undefined, includePaths: readonly string[] | null | undefined): string[] {
+  const paths = [startPath, ...(includePaths ?? [])].filter(
+    (path): path is string => typeof path === "string" && path.trim() !== "",
+  );
+  return paths.length > 0 ? paths : [SCOPED_PROJECT_NOTICE];
+}
 
 export default function ModuleOverviewPage() {
   const params = useParams<{ moduleId: string }>();
@@ -34,7 +43,7 @@ export default function ModuleOverviewPage() {
   }
 
   const module = detail?.module;
-  const application = detail?.application;
+  const project = detail?.project;
   if (!module) {
     return <div className="py-20 text-center text-sm text-muted-foreground">Module not found.</div>;
   }
@@ -46,12 +55,20 @@ export default function ModuleOverviewPage() {
       <ModuleNav moduleId={moduleId} moduleName={module.name} status={status} />
 
       <div className="flex flex-wrap items-center justify-between gap-4">
-        <div className="text-sm text-muted-foreground">
-          {application ? (
+        <div className="space-y-1 text-sm text-muted-foreground">
+          {project ? (
             <span>
-              {application.name} · <span className="font-mono">{application.baseUrl}</span>
+              {project.name} · <span className="font-mono">{project.baseUrl}</span>
             </span>
           ) : null}
+          <div className="flex flex-wrap items-center gap-1.5 text-xs">
+            <span className="uppercase tracking-wide">Scope</span>
+            {describeScope(module.startPath, module.includePaths).map((path) => (
+              <code key={path} className="rounded bg-muted px-1.5 py-0.5 font-mono">
+                {path}
+              </code>
+            ))}
+          </div>
         </div>
         <div className="flex items-center gap-2">
           {status !== "DISCOVERING" && <DiscoverModuleButton moduleId={moduleId} moduleName={module.name} />}
@@ -79,7 +96,7 @@ export default function ModuleOverviewPage() {
         <Alert>
           <AlertTitle>Not discovered yet</AlertTitle>
           <AlertDescription>
-            Add credentials and test data first, then start discovery to build the application model, workflows, and
+            Add credentials and test data first, then start discovery to build the module model, workflows, and
             candidate test cases.
           </AlertDescription>
         </Alert>
@@ -87,7 +104,7 @@ export default function ModuleOverviewPage() {
 
       <ReportGrid report={report} />
 
-      <div className="grid gap-4 sm:grid-cols-3">
+      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
         <ActionCard
           icon={<ShieldAlert className="h-4 w-4" />}
           title="Credentials & Test Data"
@@ -108,6 +125,13 @@ export default function ModuleOverviewPage() {
           description="Review generated workflows and candidate test cases before Phase 3 execution."
           href={`/modules/${moduleId}/review`}
           cta={`${report?.counts.workflows ?? 0} workflows · ${report?.counts.testCases ?? 0} tests`}
+        />
+        <ActionCard
+          icon={<FileText className="h-4 w-4" />}
+          title="Report"
+          description="Printable summary of pages, actions, workflows, logs and screenshots."
+          href={`/modules/${moduleId}/report`}
+          cta="Open & print as PDF"
         />
       </div>
     </div>

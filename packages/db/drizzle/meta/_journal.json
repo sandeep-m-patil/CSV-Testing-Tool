@@ -8,6 +8,27 @@
       "when": 1790313671261,
       "tag": "0000_wonderful_cassandra_nova",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1790494784873,
+      "tag": "0001_petite_the_santerians",
+      "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1790501267370,
+      "tag": "0002_flatten_project_application",
+      "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1790503000000,
+      "tag": "0003_drop_project_base_url_default",
+      "breakpoints": true
     }
   ]
 }

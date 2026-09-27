@@ -69,7 +69,7 @@ export async function buildWorkflows(ctx: DiscoveryContext): Promise<number> {
     const destination = findTransitionDestination(page.id, pageById, transitions);
 
     const fullSteps: WorkflowStep[] = [
-      { order: workflowSteps.length + 1, action: "GOTO", target: page.url },
+      { order: 1, action: "GOTO", target: page.url },
       ...workflowSteps.map((step, index) => ({ ...step, order: index + 2 })),
       ...(destination
         ? [

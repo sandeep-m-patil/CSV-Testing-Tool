@@ -9,16 +9,27 @@ import { toast } from "sonner";
 import { apiFetch } from "@/lib/api-client";
 import { queryKeys } from "@/lib/query-keys";
 import { errorToast } from "@/lib/mutation";
+import { titleCase } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
+import { Select } from "@/components/ui/select";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/input";
+
+const ENVIRONMENTS: CreateProjectInput["environment"][] = [
+  "development",
+  "qa",
+  "staging",
+  "production",
+  "custom",
+];
 
 export function CreateProjectButton() {
   const [open, setOpen] = useState(false);
   const [submitting, setSubmitting] = useState(false);
-  const [values, setValues] = useState<CreateProjectInput>({ name: "", description: "" });
+  const EMPTY = { name: "", baseUrl: "", description: "", environment: "development", productionConfirmed: false } as const;
+  const [values, setValues] = useState<CreateProjectInput>({ ...EMPTY });
   const router = useRouter();
   const queryClient = useQueryClient();
 
@@ -37,7 +48,7 @@ export function CreateProjectButton() {
       });
       toast.success("Project created");
       setOpen(false);
-      setValues({ name: "", description: "" });
+      setValues({ ...EMPTY });
       await queryClient.invalidateQueries({ queryKey: queryKeys.projects });
       if (data.project?.id) router.push(`/projects/${data.project.id}`);
     } catch (error) {
@@ -58,7 +69,10 @@ export function CreateProjectButton() {
       <DialogContent>
         <DialogHeader>
           <DialogTitle>Create project</DialogTitle>
-          <DialogDescription>Projects group applications, modules, credentials, and discovery runs.</DialogDescription>
+          <DialogDescription>
+            A project is one web application you test. A &quot;Whole site&quot; module is created for you and
+            discovery starts immediately.
+          </DialogDescription>
         </DialogHeader>
         <form onSubmit={submit} className="space-y-4">
           <div className="space-y-2">
@@ -72,6 +86,51 @@ export function CreateProjectButton() {
               required
             />
           </div>
+          <div className="space-y-2">
+            <Label htmlFor="project-base-url">Base URL</Label>
+            <Input
+              id="project-base-url"
+              data-testid="project-base-url"
+              type="url"
+              placeholder="https://shop.example.com"
+              value={values.baseUrl}
+              onChange={(event) => setValues((prev) => ({ ...prev, baseUrl: event.target.value }))}
+              required
+            />
+          </div>
+          <div className="space-y-2">
+            <Label htmlFor="project-environment">Environment</Label>
+            <Select
+              id="project-environment"
+              data-testid="project-environment"
+              value={values.environment}
+              onChange={(event) => {
+                const value = event.target.value as CreateProjectInput["environment"];
+                setValues((prev) => ({
+                  ...prev,
+                  environment: value,
+                  productionConfirmed: value === "production" ? prev.productionConfirmed : false,
+                }));
+              }}
+            >
+              {ENVIRONMENTS.map((environment) => (
+                <option key={environment} value={environment}>
+                  {titleCase(environment)}
+                </option>
+              ))}
+            </Select>
+          </div>
+          {values.environment === "production" && (
+            <label className="flex items-start gap-2 text-sm">
+              <input
+                type="checkbox"
+                className="mt-0.5"
+                checked={values.productionConfirmed}
+                onChange={(event) => setValues((prev) => ({ ...prev, productionConfirmed: event.target.checked }))}
+              />
+              I explicitly authorise automated discovery against this production environment.
+            </label>
+          )}
           <div className="space-y-2">
             <Label htmlFor="project-description">Description</Label>
             <Textarea

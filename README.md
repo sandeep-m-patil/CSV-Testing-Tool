@@ -13,22 +13,25 @@ Run a real browser against an app, autonomously discover its pages/forms/actions
 - `GET /api/auth/me` (current session), `requireSession()` guards on every protected route.
 - Login page: `/login`, sign-up page: `/signup`.
 
-### 2. Project → Application → Module hierarchy
-- **Projects** — create, list, rename, delete, view detail.
-- **Applications** — the system under test, with an `environment` (`development | staging | test | production`). **Production apps are hard-blocked from discovery.**
-- **Modules** — browsable areas of the app (e.g. *Materials*, *Lab Books*), with live `discoveryStatus` and `status` tracking.
+### 2. Project → Module hierarchy
+- **Projects** — a project *is* one web application: it owns the `baseUrl`, an `environment` (`development | qa | staging | production | custom`), and a `productionConfirmed` flag. **Production projects are hard-blocked from discovery.**
+- **Modules** — browsable areas of the project (e.g. *Materials*, *Lab Books*), with live `discoveryStatus` and `status` tracking.
 
-Pages: `/app/projects`, `/app/projects/[projectId]`, `/app/projects/[projectId]/applications/new`, `/app/projects/[projectId]/applications/[applicationId]`.
+**Automatic provisioning.** Creating a project immediately creates a **"Whole site"** module (no start path, so the scope covers the entire base URL) and enqueues a discovery run for it. Production projects are skipped because crawling is blocked there. Existing projects get the same treatment from the **"Discover whole site"** button on the project page, or `POST /api/projects/[projectId]/discover`. Both are idempotent per project — they reuse an existing "Whole site" module rather than stacking duplicates.
+
+> A discovery session stays `QUEUED` until the **worker is running**. If logs show "Waiting for logs…" and evidence is empty, start `pnpm dev:worker` (or use `pnpm dev`, which starts web + worker + demo-app together).
+
+Pages: `/projects`, `/projects/[projectId]`, `/modules`, `/modules/[moduleId]`.
 
 ### 3. Module configuration
 - **Credentials** (per role) — username/password per role (e.g. `qa_analyst`). Secrets are **AES-256-GCM encrypted** at rest; the web UI only ever receives a `hasSecret` flag.
 - **Test data** — key/value constants and CSV templates scoped to the module; used to fill discovery forms and as inputs to generated test cases.
-- UI: `/app/modules/[moduleId]/config` (`CredentialManager`, `TestDataManager` with query invalidation + toasts).
+- UI: `/modules/[moduleId]/config` (`CredentialManager`, `TestDataManager` with query invalidation + toasts).
 
 ### 4. Autonomous discovery control room
 - Start a session: `POST /api/modules/:moduleId/discover` (optionally choose a login role) → inserts a `QUEUED` discovery session and enqueues a BullMQ job.
 - Guard rails: same-origin CSRF check, module access, **production block**, Redis availability check (`REDIS_UNCONFIGURED` 503 if missing).
-- Live session page `/app/modules/[moduleId]/discovery` streams status, current URL/step, page/action/workflow counters, structured logs, and evidence.
+- Live session page `/modules/[moduleId]/discovery` streams status, current URL/step, page/action/workflow counters, structured logs, and evidence.
 
 **What the worker does per session** (`apps/worker`, Playwright + Chromium):
 - launches an isolated, secret-safe browser context and logs in with the chosen role;
@@ -48,7 +51,7 @@ From the executed action trace (`apps/worker/src/workflows/builder.ts`):
 `apps/worker/src/test-generation/generator.ts` expands each workflow into step-by-step **test cases** with ordered steps, expected results, and references to module test data.
 
 ### 7. Review & reporting
-- `/app/modules/[moduleId]/review` — browse discovered workflows and generated test cases; approve/edit via APIs (`workflows/*`, `test-cases/*`).
+- `/modules/[moduleId]/review` — browse discovered workflows and generated test cases; approve/edit via APIs (`workflows/*`, `test-cases/*`).
 - `GET /api/modules/[moduleId]/report` — per-module discovery summary.
 
 ### 8. Health & evidence storage
@@ -66,9 +69,9 @@ Adapter pattern (`mock` | `openai` | `local`) for submit-detection and workflow 
 ```
 POST   /api/auth/signup · POST /api/auth/login · POST /api/auth/logout · GET /api/auth/me
 GET|POST      /api/projects                    GET|PATCH|DELETE /api/projects/[projectId]
-                                              GET /api/projects/[projectId]/detail
-GET|POST      /api/applications                GET|PATCH|DELETE /api/applications/[applicationId]
-                                              POST /api/applications/[applicationId]/modules
+                                               GET /api/projects/[projectId]/detail
+                                               POST /api/projects/[projectId]/discover
+GET|POST      /api/projects/[projectId]/modules
 GET|PATCH|DELETE /api/modules/[moduleId]
 POST  /api/modules/[moduleId]/discover         GET /api/modules/[moduleId]/discovery
 GET|POST /api/modules/[moduleId]/credentials   GET|PATCH|DELETE /api/modules/[moduleId]/credentials/[id]
@@ -91,13 +94,34 @@ pnpm install
 pnpm db:migrate && pnpm db:seed          # against your Neon, unpooled URL
 docker compose -f docker/docker-compose.yml up -d redis   # Redis only
 pnpm --filter @repo/worker exec playwright install chromium
-pnpm dev:web      # http://localhost:3000  — login demo@autotest.dev / demo1234
-pnpm dev:worker   # discovery consumer
+```
+
+Then start everything (web + worker + demo-app) with one command:
+
+```bash
+pnpm dev
+```
+
+| Service | URL |
+| --- | --- |
+| Web app | http://localhost:3000 |
+| Demo target app | http://localhost:4000 |
+| Worker | no UI — consumes the discovery queue |
+
+Log in with **demo@autotest.dev / demo1234**.
+
+Or run them separately in three terminals:
+
+```bash
+pnpm dev:web      # http://localhost:3000
+pnpm dev:worker   # discovery consumer — REQUIRED or sessions stay QUEUED forever
+pnpm dev:demo     # http://localhost:4000 — the app under test
 ```
 
 | Command | Purpose |
 | --- | --- |
-| `pnpm dev:web` / `pnpm dev:worker` | Web app (:3000) / worker |
+| `pnpm dev` | Web + worker + demo-app in parallel (recommended) |
+| `pnpm dev:web` / `dev:worker` / `dev:demo` | Run a single service |
 | `pnpm db:generate` / `db:migrate` / `db:seed` | Drizzle schema / DDL / demo data |
 | `pnpm typecheck` / `lint` / `test` | `tsc --noEmit` · ESLint · Vitest |
 | `pnpm build` | Workspace build |
@@ -109,7 +133,7 @@ pnpm dev:worker   # discovery consumer
 ```
 apps/web/        Next.js 15 management UI + API (:3000)
 apps/worker/     BullMQ consumer: discovery → workflows → test cases
-apps/demo-app/   Demo target (:4000) — roadmap
+apps/demo-app/   Demo target app (:4000)
 packages/core/   Queue, storage, errors, safety, logging
 packages/db/     Drizzle schema, migrations, seed
 packages/schemas/ Shared Zod contracts
@@ -121,4 +145,4 @@ packages/ai/     mock / local / OpenAI adapters
 - Secret-bearing env vars are git-ignored and app-scoped.
 - Credentials encrypted (AES-256-GCM); decrypted only inside the worker.
 - Screenshots are taken after DOM masking of sensitive inputs.
-- Production applications are blocked from autonomous discovery; destructive/logout actions are never executed.
+- Production projects are blocked from autonomous discovery; destructive/logout actions are never executed.

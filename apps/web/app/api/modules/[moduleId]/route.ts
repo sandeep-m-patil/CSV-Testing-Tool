@@ -1,5 +1,5 @@
 import { eq } from "drizzle-orm";
-import { applications, credentials, modules, testDataSets, discoverySessions, workflows, testCases } from "@repo/db/schema";
+import { credentials, modules, projects, testDataSets, discoverySessions, workflows, testCases } from "@repo/db/schema";
 import { UpdateModuleInputSchema } from "@repo/schemas";
 import { ok, parseBody, route, noContent } from "@/lib/api";
 import { assertSameOrigin } from "@/lib/csrf";
@@ -13,13 +13,13 @@ export const GET = route(async (_request, context: Params) => {
   const session = await requireSession();
   const routeParams = await context.params;
 const moduleId = routeParams['moduleId']!;
-  const { applicationId, projectId } = await requireModuleAccess(moduleId, session);
+  const { projectId } = await requireModuleAccess(moduleId, session);
 
   const [module] = await db.select().from(modules).where(eq(modules.id, moduleId)).limit(1);
   if (!module) {
     return ok({ module: null }, undefined, { status: 404 });
   }
-  const [application] = await db.select().from(applications).where(eq(applications.id, applicationId)).limit(1);
+  const [project] = await db.select().from(projects).where(eq(projects.id, projectId)).limit(1);
 
   const [credRows, dataRows, sessionRows] = await Promise.all([
     db.select().from(credentials).where(eq(credentials.moduleId, moduleId)),
@@ -54,7 +54,7 @@ const moduleId = routeParams['moduleId']!;
 
   return ok({
     module,
-    application: application ?? null,
+    project: project ?? null,
     projectId,
     credentials: masks,
     testDataSets: dataSets,
