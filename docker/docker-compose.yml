@@ -1,0 +1,91 @@
+services:
+  db:
+    image: postgres:16-alpine
+    container_name: autotest-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: autotest
+    ports:
+      - "5432:5432"
+    volumes:
+      - autotest_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    container_name: autotest-redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    volumes:
+      - autotest_redisdata:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  demo-app:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.demo
+    container_name: autotest-demo-app
+    restart: unless-stopped
+    ports:
+      - "4000:4000"
+
+  web:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.web
+    container_name: autotest-web
+    restart: unless-stopped
+    env_file:
+      - ../apps/web/.env
+    environment:
+      DATABASE_URL: postgresql://postgres:postgres@db:5432/autotest
+      REDIS_URL: redis://redis:6379
+      NEXT_PUBLIC_APP_URL: http://localhost:3000
+      STORAGE_PUBLIC_BASE_URL: http://localhost:3000
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    ports:
+      - "3000:3000"
+    volumes:
+      - autotest_webdata:/app/apps/web/data
+
+  worker:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.worker
+    container_name: autotest-worker
+    restart: unless-stopped
+    env_file:
+      - ../apps/worker/.env
+    environment:
+      DATABASE_URL: postgresql://postgres:postgres@db:5432/autotest
+      REDIS_URL: redis://redis:6379
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    volumes:
+      - autotest_workerdata:/app/apps/worker/data
+      - autotest_shard:/app/shared
+
+volumes:
+  autotest_pgdata:
+  autotest_redisdata:
+  autotest_webdata:
+  autotest_workerdata:
+  autotest_shard:

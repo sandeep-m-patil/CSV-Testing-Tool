@@ -1,0 +1,288 @@
+import { and, eq } from "drizzle-orm";
+import type { Db } from "@repo/db";
+import type { DetectedAction } from "@repo/browser";
+import { actionKey } from "./action-space";
+import {
+  discoveredActions,
+  discoveryArtifacts,
+  discoveredElements,
+  discoveredPages,
+  discoveryLogs,
+  discoverySessions,
+  stateTransitions,
+  testCases,
+  testCaseSteps,
+  workflows,
+  workflowSteps,
+  type NewDiscoveredActionRow,
+  type NewDiscoveredElementRow,
+  type NewDiscoveredPageRow,
+} from "@repo/db/schema";
+
+export interface DiscoveryScope {
+  sessionId: string;
+  moduleId: string;
+}
+
+export interface ElementRecord {
+  elementType: string;
+  role: string | null;
+  name: string | null;
+  text: string | null;
+  placeholder: string | null;
+  label: string | null;
+  testId: string | null;
+  cssSelector: string | null;
+  xpath: string | null;
+  ariaAttributes: Record<string, string> | null;
+  visible: boolean;
+  enabled: boolean;
+}
+
+export interface ActionRecord {
+  action: string;
+  target: Record<string, unknown>;
+  dangerous: boolean;
+  blocked: boolean;
+  executed: boolean;
+}
+
+export interface ArtifactRecord {
+  actionId?: string;
+  pageId?: string;
+  artifactType: string;
+  storageKey: string;
+  url: string | null;
+  label: string;
+}
+
+export interface PageRecordResult {
+  id: string;
+  existing: boolean;
+}
+
+/**
+ * Progressive write-ahead persistence for a single discovery session.
+ * Every piece of evidence is durable immediately so the web UI can stream it.
+ */
+export class DiscoveryStore {
+  constructor(
+    private readonly db: Db,
+    private readonly scope: DiscoveryScope,
+  ) {}
+
+  async log(level: "debug" | "info" | "warn" | "error" | "event" | "action", message: string, data?: Record<string, unknown>): Promise<void> {
+    // Fire-and-forget: log writes must never stall the discovery pipeline.
+    void this.db
+      .insert(discoveryLogs)
+      .values({
+        discoverySessionId: this.scope.sessionId,
+        level,
+        message,
+        data: data ?? {},
+      })
+      .catch((error: unknown) => {
+        console.error("[store:log]", error instanceof Error ? error.message : String(error));
+      });
+  }
+
+  async updateSession(changes: {
+    status?: "QUEUED" | "RUNNING" | "COMPLETED" | "FAILED";
+    currentUrl?: string | null;
+    currentStep?: string | null;
+    pagesDiscovered?: number;
+    actionsDiscovered?: number;
+    workflowsDiscovered?: number;
+    error?: string | null;
+    startedAt?: Date;
+    completedAt?: Date;
+  }): Promise<void> {
+    await this.db.update(discoverySessions).set(changes).where(eq(discoverySessions.id, this.scope.sessionId));
+  }
+
+  async insertPage(page: NewDiscoveredPageRow): Promise<PageRecordResult> {
+    const existing = await this.db
+      .select({ id: discoveredPages.id })
+      .from(discoveredPages)
+      .where(and(eq(discoveredPages.discoverySessionId, this.scope.sessionId), eq(discoveredPages.url, page.url)))
+      .limit(1);
+
+    if (existing.length > 0 && existing[0]) {
+      return { id: existing[0].id, existing: true };
+    }
+
+    const [row] = await this.db.insert(discoveredPages).values(page).returning({ id: discoveredPages.id });
+    if (!row) throw new Error("Failed to insert discovered page");
+    return { id: row.id, existing: false };
+  }
+
+  async insertElements(pageId: string, elements: ElementRecord[]): Promise<number> {
+    if (elements.length === 0) return 0;
+    const { sessionId, moduleId } = this.scope;
+    const rows: NewDiscoveredElementRow[] = elements.map((element) => ({
+      discoverySessionId: sessionId,
+      moduleId,
+      pageId,
+      elementType: element.elementType,
+      role: element.role,
+      name: element.name,
+      text: element.text,
+      placeholder: element.placeholder,
+      label: element.label,
+      testId: element.testId,
+      cssSelector: element.cssSelector,
+      xpath: element.xpath,
+      ariaAttributes: element.ariaAttributes,
+      visible: element.visible,
+      enabled: element.enabled,
+    }));
+    await this.db.insert(discoveredElements).values(rows);
+    return rows.length;
+  }
+
+  async insertActions(pageId: string, actions: ActionRecord[]): Promise<Record<string, string>> {
+    if (actions.length === 0) return {};
+    const { sessionId, moduleId } = this.scope;
+    const seen = new Set<string>();
+    const keys: string[] = [];
+    const rows: NewDiscoveredActionRow[] = [];
+    for (const action of actions) {
+      const key = actionKey(action as unknown as DetectedAction);
+      if (seen.has(key)) continue;
+      seen.add(key);
+      keys.push(key);
+      rows.push({ ...action, discoverySessionId: sessionId, moduleId, pageId });
+    }
+    const inserted = await this.db.insert(discoveredActions).values(rows).returning({ id: discoveredActions.id });
+    const ids: Record<string, string> = {};
+    inserted.forEach((row, index) => {
+      const key = keys[index];
+      if (row && key) ids[key] = row.id;
+    });
+    return ids;
+  }
+
+  async setExecuted(actionId: string): Promise<void> {
+    await this.db.update(discoveredActions).set({ executed: true }).where(eq(discoveredActions.id, actionId));
+  }
+
+  async insertTransition(input: {
+    fromPageId: string;
+    toPageId: string;
+    actionId?: string | null;
+    label: string;
+  }): Promise<void> {
+    await this.db.insert(stateTransitions).values({
+      discoverySessionId: this.scope.sessionId,
+      moduleId: this.scope.moduleId,
+      fromPageId: input.fromPageId,
+      toPageId: input.toPageId,
+      actionId: input.actionId ?? null,
+      label: input.label,
+    });
+  }
+
+  async insertArtifact(artifact: ArtifactRecord): Promise<void> {
+    await this.db.insert(discoveryArtifacts).values({
+      discoverySessionId: this.scope.sessionId,
+      moduleId: this.scope.moduleId,
+      actionId: artifact.actionId ?? null,
+      pageId: artifact.pageId ?? null,
+      artifactType: artifact.artifactType,
+      storageKey: artifact.storageKey,
+      url: artifact.url,
+      label: artifact.label,
+    });
+  }
+
+  async insertWorkflowAndSteps(
+    input: {
+      name: string;
+      description: string | null;
+      preconditions: string[];
+      steps: Array<{ order: number; action: string; target: string; value?: string; optional?: boolean }>;
+      source: string;
+      confidence: string;
+    },
+    role: string | null,
+  ): Promise<string> {
+    const [workflow] = await this.db
+      .insert(workflows)
+      .values({
+        discoverySessionId: this.scope.sessionId,
+        moduleId: this.scope.moduleId,
+        name: input.name,
+        description: input.description,
+        preconditions: input.preconditions,
+        steps: input.steps,
+        status: "DRAFT",
+        source: input.source,
+        confidence: input.confidence,
+      })
+      .returning({ id: workflows.id });
+    if (!workflow) throw new Error("Failed to insert workflow");
+
+    if (input.steps.length > 0) {
+      await this.db.insert(workflowSteps).values(
+        input.steps.map((step) => ({
+          workflowId: workflow.id,
+          order: step.order,
+          action: step.action,
+          target: step.target,
+          value: step.value ?? null,
+          optional: step.optional ?? false,
+        })),
+      );
+    }
+    void role;
+    return workflow.id;
+  }
+
+  async insertTestCase(
+    input: {
+      workflowId?: string;
+      name: string;
+      description: string | null;
+      type: string;
+      priority: string;
+      role: string | null;
+      precondition: string | null;
+      steps: Array<{ order: number; action: string; target: string; value?: string; stepType: string }>;
+    },
+  ): Promise<void> {
+    const [testCase] = await this.db
+      .insert(testCases)
+      .values({
+        moduleId: this.scope.moduleId,
+        workflowId: input.workflowId ?? null,
+        discoverySessionId: this.scope.sessionId,
+        name: input.name,
+        description: input.description,
+        type: input.type,
+        priority: input.priority,
+        status: "DRAFT",
+        source: "generated",
+        role: input.role,
+        precondition: input.precondition,
+        steps: input.steps,
+      })
+      .returning({ id: testCases.id });
+    if (!testCase) throw new Error("Failed to insert test case");
+
+    await this.db.insert(testCaseSteps).values(
+      input.steps.map((step) => ({
+        testCaseId: testCase.id,
+        order: step.order,
+        action: step.action,
+        target: step.target,
+        value: step.value ?? null,
+        stepType: step.stepType,
+      })),
+    );
+  }
+
+  async countSessionsForModule(): Promise<number> {
+    const result = await this.db.select({ id: discoverySessions.id }).from(discoverySessions).where(eq(discoverySessions.moduleId, this.scope.moduleId));
+    return result.length;
+  }
+}

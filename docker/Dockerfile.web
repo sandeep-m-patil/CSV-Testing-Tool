@@ -1,0 +1,24 @@
+# syntax=docker/dockerfile:1
+FROM node:20-alpine AS base
+RUN corepack enable && corepack prepare pnpm@9.12.0 --activate
+WORKDIR /app
+
+FROM base AS deps
+COPY . .
+RUN pnpm install --frozen-lockfile=false
+
+FROM base AS runtime
+WORKDIR /app
+ENV NODE_ENV=production
+COPY --from=deps /app/node_modules ./node_modules
+COPY --from=deps /app/apps/web/node_modules ./apps/web/node_modules
+COPY --from=deps /app/packages ./packages
+COPY --from=deps /app/apps/web/package.json ./apps/web/package.json
+COPY --from=deps /app/apps/web/next.config.mjs ./apps/web/next.config.mjs
+COPY --from=deps /app/apps/web/tsconfig.json ./apps/web/tsconfig.json
+COPY --from=deps /app/tsconfig.base.json ./tsconfig.base.json
+COPY apps/web ./apps/web
+# Generate at build-time URLs
+WORKDIR /app/apps/web
+EXPOSE 3000
+CMD ["pnpm", "start"]
