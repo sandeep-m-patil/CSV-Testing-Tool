@@ -1,6 +1,6 @@
 "use client";
 
-import { Download } from "lucide-react";
+import { FileJson, Printer } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import type { TestRunResultRecord, TestRunSummary } from "@/features/hooks";
 import { Stat, StatusBadge, StatusIcon, passRate } from "./status";
@@ -9,7 +9,7 @@ interface Props {
   run: TestRunSummary;
   module: { name: string } | null;
   results: TestRunResultRecord[];
-  onDownload?: () => void;
+  onDownloadJson?: () => void;
 }
 
 function fmtDate(value: string | Date | null | undefined): string {
@@ -20,8 +20,10 @@ function fmtDate(value: string | Date | null | undefined): string {
 /**
  * Printable test-run report: one block per test case showing its stable code,
  * a full-size evidence screenshot, then the title and expected vs actual detail.
+ * "Print / Save as PDF" uses the browser's own PDF engine, so screenshots stay
+ * full quality and the text stays selectable.
  */
-export function TestRunReport({ run, module, results, onDownload }: Props) {
+export function TestRunReport({ run, module, results, onDownloadJson }: Props) {
   const passed = results.filter((row) => row.status === "PASS").length;
   const failed = results.filter((row) => row.status === "FAIL").length;
   const blocked = results.filter((row) => row.status === "BLOCKED").length;
@@ -29,7 +31,7 @@ export function TestRunReport({ run, module, results, onDownload }: Props) {
   const withShot = results.filter((row) => row.screenshotUrl).length;
 
   return (
-    <div className="space-y-6">
+    <div className="print-report space-y-6">
       <header className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <h2 className="text-xl font-semibold">Test run report</h2>
@@ -37,12 +39,18 @@ export function TestRunReport({ run, module, results, onDownload }: Props) {
             {module?.name ?? "Module"} &middot; run <span className="font-mono text-xs">{run.id}</span>
           </p>
         </div>
-        {onDownload && (
-          <Button variant="outline" size="sm" onClick={onDownload} className="no-print">
-            <Download className="mr-1.5 h-4 w-4" />
-            Download JSON
+        <div className="flex gap-2 no-print">
+          {onDownloadJson && (
+            <Button variant="outline" size="sm" onClick={onDownloadJson}>
+              <FileJson className="mr-1.5 h-4 w-4" />
+              JSON
+            </Button>
+          )}
+          <Button size="sm" onClick={() => window.print()}>
+            <Printer className="mr-1.5 h-4 w-4" />
+            Print / Save as PDF
           </Button>
-        )}
+        </div>
       </header>
 
       <section className="grid grid-cols-2 gap-3 sm:grid-cols-4 lg:grid-cols-7">
@@ -88,7 +96,7 @@ function Meta({ label, value }: { label: string; value: string }) {
 
 function CaseReportBlock({ row }: { row: TestRunResultRecord }) {
   return (
-    <article className="overflow-hidden rounded-xl border bg-card print:break-inside-avoid">
+    <article className="print-card print-block overflow-hidden rounded-xl border bg-card">
       <header className="flex flex-wrap items-center gap-3 border-b px-4 py-3">
         <StatusIcon status={row.status} />
         <span className="font-mono text-sm font-semibold tracking-tight">{row.code}</span>
@@ -105,7 +113,7 @@ function CaseReportBlock({ row }: { row: TestRunResultRecord }) {
           href={row.screenshotUrl}
           target="_blank"
           rel="noreferrer"
-          className="block border-b bg-muted/30 no-print"
+          className="print-evidence block border-b bg-muted/30"
           title="Open full size"
         >
           <img src={row.screenshotUrl} alt={`Evidence for ${row.code}`} className="block h-auto w-full" />

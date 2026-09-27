@@ -157,4 +157,30 @@
   .print-report img {
     background: #fff !important;
   }
+
+  /* Evidence screenshots: keep them whole and inside the page box so a case
+     never spills onto an extra sheet. Width stays full, height is capped. */
+  .print-report .print-evidence {
+    background: #fff !important;
+    border-bottom: 1px solid #cbd5e1 !important;
+    text-align: center;
+    break-inside: avoid;
+    page-break-inside: avoid;
+  }
+
+  .print-report .print-evidence img {
+    max-width: 100% !important;
+    max-height: 205mm;
+    width: auto !important;
+    height: auto !important;
+    object-fit: contain;
+  }
+
+  /* Status pills and monospace codes are unreadable once flattened to black. */
+  .print-report [data-status] {
+    border: 1px solid #94a3b8 !important;
+    padding: 0 4px;
+    border-radius: 3px;
+    font-size: 9px;
+  }
 }

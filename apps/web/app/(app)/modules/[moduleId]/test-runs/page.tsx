@@ -56,7 +56,7 @@ function TestRunsView() {
     <div className="mx-auto max-w-7xl space-y-6">
       <ModuleNav moduleId={moduleId} moduleName={module.name} status={module.discoveryStatus} />
 
-      <div className="flex flex-wrap items-center justify-between gap-3">
+      <div className="no-print flex flex-wrap items-center justify-between gap-3">
         <div>
           <h2 className="text-lg font-semibold">Test runs</h2>
           <p className="text-sm text-muted-foreground">
@@ -79,7 +79,7 @@ function TestRunsView() {
 
       {(runs?.length ?? 0) > 0 && (
         <Tabs value={activeRunId ?? undefined} onValueChange={setSelectedRunId}>
-          <TabsList className="flex-wrap">
+          <TabsList className="no-print flex-wrap">
             {runs!.map((run) => (
               <TabsTrigger key={run.id} value={run.id}>
                 {run.status === "COMPLETED" ? <CheckCircle2 className="mr-1.5 h-3.5 w-3.5 text-emerald-500" /> : null}
@@ -118,7 +118,7 @@ function TestRunsView() {
                       run={runData.testRun}
                       module={runData.module}
                       results={runData.results}
-                      onDownload={() => downloadRunReport(runData)}
+                      onDownloadJson={() => downloadRunReport(runData)}
                     />
                   ) : (
                     <>

@@ -24,7 +24,11 @@ export function StatusIcon({ status }: { status: string }) {
 export function StatusBadge({ status }: { status: string }) {
   const variant =
     status === "PASS" ? "success" : status === "FAIL" ? "destructive" : status === "BLOCKED" ? "secondary" : "warning";
-  return <Badge variant={variant}>{status}</Badge>;
+  return (
+    <span data-status={status}>
+      <Badge variant={variant}>{status}</Badge>
+    </span>
+  );
 }
 
 export function Stat({ label, value, tone }: { label: string; value: number | string; tone?: string }) {
