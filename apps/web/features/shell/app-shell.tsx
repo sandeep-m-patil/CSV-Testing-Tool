@@ -1,6 +1,6 @@
 ﻿"use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { FlaskConical, FolderKanban, LayoutDashboard, LogOut, Menu, TestTube2, X } from "lucide-react";
@@ -21,6 +21,15 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const [mobileOpen, setMobileOpen] = useState(false);
   const { data } = useMe();
   const logout = useLogout();
+  const [mounted, setMounted] = useState(false);
+
+  useEffect(() => setMounted(true), []);
+
+  // Gate session-derived markup behind `mounted` so the server render and the
+  // first client render are byte-identical. Reading `data` directly would emit
+  // a skeleton on the server and the real user on any client that already has
+  // the query cached, which React reports as a hydration mismatch.
+  const user = mounted ? data?.user : undefined;
 
   const sidebar = (
     <div className="flex h-full flex-col bg-slate-900 text-slate-100">
@@ -59,13 +68,13 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         </div>
         <div className="flex items-center gap-3">
           <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-slate-700 text-xs font-semibold uppercase">
-            {data?.user.name?.slice(0, 2) ?? "U"}
+            {user?.name?.slice(0, 2) ?? "U"}
           </div>
           <div className="min-w-0 flex-1">
-            {data ? (
+            {user ? (
               <>
-                <p className="truncate text-sm font-medium">{data.user.name}</p>
-                <p className="truncate text-xs text-slate-400">{data.user.email}</p>
+                <p className="truncate text-sm font-medium">{user.name}</p>
+                <p className="truncate text-xs text-slate-400">{user.email}</p>
               </>
             ) : (
               <>
@@ -95,9 +104,9 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           <FlaskConical className="h-5 w-5 text-primary" />
           Autotest
         </Link>
-        {!data && <Skeleton className="ml-auto h-4 w-20" />}
+        {!user && <Skeleton className="ml-auto h-4 w-20" />}
         <div className="ml-auto flex items-center gap-2">
-          {data && <p className="hidden text-xs text-muted-foreground sm:inline">{data.user.name}</p>}
+          {user && <p className="hidden text-xs text-muted-foreground sm:inline">{user.name}</p>}
           <ThemeToggle />
         </div>
       </header>

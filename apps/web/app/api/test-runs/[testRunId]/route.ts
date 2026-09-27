@@ -33,6 +33,7 @@ export const GET = route(async (_request, context: Params) => {
       error: testRunResults.error,
       screenshotKey: testRunResults.screenshotKey,
       order: testRunResults.order,
+      code: testCases.code,
       name: testCases.name,
       type: testCases.type,
       priority: testCases.priority,
@@ -49,7 +50,7 @@ export const GET = route(async (_request, context: Params) => {
     module: module ?? null,
     results: results.map((row) => ({
       ...row,
-      code: `TC-${String(row.order + 1).padStart(3, "0")}`,
+      code: row.code ?? `TC-${String(row.order + 1).padStart(4, "0")}`,
       screenshotUrl: row.screenshotKey ? storage.getPublicUrl(row.screenshotKey) : null,
     })),
   });

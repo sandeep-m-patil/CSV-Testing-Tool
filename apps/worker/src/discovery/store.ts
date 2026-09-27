@@ -9,6 +9,7 @@ import {
   discoveredPages,
   discoveryLogs,
   discoverySessions,
+  modules,
   stateTransitions,
   testCases,
   testCaseSteps,
@@ -252,12 +253,14 @@ export class DiscoveryStore {
       steps: Array<{ order: number; action: string; target: string; value?: string; stepType: string; expect?: unknown }>;
     },
   ): Promise<void> {
+    const code = await this.nextTestCaseCode();
     const [testCase] = await this.db
       .insert(testCases)
       .values({
         moduleId: this.scope.moduleId,
         workflowId: input.workflowId ?? null,
         discoverySessionId: this.scope.sessionId,
+        code,
         name: input.name,
         description: input.description,
         type: input.type,
@@ -283,6 +286,45 @@ export class DiscoveryStore {
         stepType: step.stepType,
       })),
     );
+  }
+
+  private moduleSlug: string | null = null;
+
+  /** Uppercase alphanumeric prefix derived from the module name, e.g. "Material Approval" -> "MATERIAL-APPR". */
+  private async resolveModuleSlug(): Promise<string> {
+    if (this.moduleSlug) return this.moduleSlug;
+    const [row] = await this.db
+      .select({ name: modules.name })
+      .from(modules)
+      .where(eq(modules.id, this.scope.moduleId))
+      .limit(1);
+    const slug = (row?.name ?? "")
+      .normalize("NFKD")
+      .replace(/[^a-zA-Z0-9]+/g, "-")
+      .replace(/^-+|-+$/g, "")
+      .toUpperCase()
+      .slice(0, 12);
+    this.moduleSlug = slug.length > 0 ? slug : "MOD";
+    return this.moduleSlug;
+  }
+
+  /** Next stable per-module code, e.g. "LOGIN-TC-024". Never reuses a code, so results stay traceable. */
+  private async nextTestCaseCode(): Promise<string> {
+    const slug = await this.resolveModuleSlug();
+    const rows = await this.db
+      .select({ code: testCases.code })
+      .from(testCases)
+      .where(eq(testCases.moduleId, this.scope.moduleId));
+    const suffix = new RegExp(`^${slug}-TC-(\\d+)$`);
+    let max = 0;
+    for (const row of rows) {
+      if (!row.code) continue;
+      const match = suffix.exec(row.code);
+      if (!match) continue;
+      const value = Number.parseInt(match[1]!, 10);
+      if (Number.isFinite(value) && value > max) max = value;
+    }
+    return `${slug}-TC-${String(max + 1).padStart(3, "0")}`;
   }
 
   async countSessionsForModule(): Promise<number> {

@@ -7,10 +7,13 @@ import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { useModuleDetail, useTestRun, useTestRuns, type TestRunSummary } from "@/features/hooks";
+import { useModuleDetail, useTestCases, useTestRun, useTestRuns, type TestRunSummary } from "@/features/hooks";
 import { ModuleNav } from "@/features/modules/module-nav";
 import { RunTestsButton } from "@/features/test-runs/run-tests-button";
 import { RunTotals, TestResultGrid } from "@/features/test-runs/test-result-grid";
+import { TestRunReport } from "@/features/test-runs/test-run-report";
+
+type ViewMode = "grid" | "report";
 
 function runStatusLabel(run: TestRunSummary): string {
   if (run.status === "QUEUED") return "Queued - waiting for the worker to pick it up";
@@ -35,7 +38,9 @@ function TestRunsView() {
 
   const { data: detail, isLoading } = useModuleDetail(moduleId);
   const { data: runs } = useTestRuns(moduleId);
+  const { data: testCases } = useTestCases(moduleId);
   const [selectedRunId, setSelectedRunId] = useState<string | null>(requestedRun);
+  const [view, setView] = useState<ViewMode>("grid");
   const activeRunId = selectedRunId ?? runs?.[0]?.id ?? null;
   const { data: runData, isLoading: runLoading } = useTestRun(activeRunId);
 
@@ -45,6 +50,7 @@ function TestRunsView() {
   if (!module) return <div className="py-20 text-center text-sm text-muted-foreground">Module not found.</div>;
 
   const caseCount = runData?.results.length ?? 0;
+  const knownCaseCount = testCases?.length ?? latestCaseCount(runs);
 
   return (
     <div className="mx-auto max-w-7xl space-y-6">
@@ -57,7 +63,7 @@ function TestRunsView() {
             Execute the generated test cases against the live app and review pass/fail with screenshot evidence.
           </p>
         </div>
-        <RunTestsButton moduleId={moduleId} moduleName={module.name} caseCount={latestCaseCount(runs)} />
+        <RunTestsButton moduleId={moduleId} moduleName={module.name} caseCount={knownCaseCount} />
       </div>
 
       {(runs?.length ?? 0) === 0 && (
@@ -92,14 +98,39 @@ function TestRunsView() {
                 <Skeleton className="h-64 rounded-xl" />
               ) : runData && runData.testRun.id === run.id ? (
                 <>
-                  <p className="text-sm text-muted-foreground">{runStatusLabel(runData.testRun)}</p>
-                  <RunTotals run={runData.testRun} />
-                  {caseCount === 0 ? (
-                    <p className="rounded-xl border border-dashed p-8 text-center text-sm text-muted-foreground">
-                      This module has no test cases. Run discovery to generate them.
-                    </p>
+                  <div className="flex flex-wrap items-center justify-between gap-3">
+                    <p className="text-sm text-muted-foreground">{runStatusLabel(runData.testRun)}</p>
+                    <div className="flex gap-1 no-print">
+                      <Button size="sm" variant={view === "grid" ? "default" : "outline"} onClick={() => setView("grid")}>
+                        Grid
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant={view === "report" ? "default" : "outline"}
+                        onClick={() => setView("report")}
+                      >
+                        Report
+                      </Button>
+                    </div>
+                  </div>
+                  {view === "report" ? (
+                    <TestRunReport
+                      run={runData.testRun}
+                      module={runData.module}
+                      results={runData.results}
+                      onDownload={() => downloadRunReport(runData)}
+                    />
                   ) : (
-                    <TestResultGrid results={runData.results} />
+                    <>
+                      <RunTotals run={runData.testRun} />
+                      {caseCount === 0 ? (
+                        <p className="rounded-xl border border-dashed p-8 text-center text-sm text-muted-foreground">
+                          This module has no test cases. Run discovery to generate them.
+                        </p>
+                      ) : (
+                        <TestResultGrid results={runData.results} />
+                      )}
+                    </>
                   )}
                 </>
               ) : null}
@@ -115,4 +146,15 @@ function TestRunsView() {
 function latestCaseCount(runs: TestRunSummary[] | undefined): number {
   const withResults = runs?.find((run) => run.totalCases > 0);
   return withResults?.totalCases ?? 0;
+}
+
+/** Save the run detail as a JSON report file for sharing or archiving. */
+function downloadRunReport(data: { testRun: TestRunSummary; module: { name: string } | null; results: unknown[] }): void {
+  const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
+  const url = URL.createObjectURL(blob);
+  const anchor = document.createElement("a");
+  anchor.href = url;
+  anchor.download = `test-run-${data.testRun.id}.json`;
+  anchor.click();
+  URL.revokeObjectURL(url);
 }

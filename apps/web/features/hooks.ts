@@ -201,6 +201,7 @@ export interface TestRunSummary {
   failedCases: number;
   skippedCases: number;
   error: string | null;
+  triggeredBy: string | null;
   startedAt: string | null;
   completedAt: string | null;
   createdAt: string;
@@ -218,12 +219,13 @@ export function useTestRuns(moduleId: string) {
 export interface TestRunResultRecord {
   id: string;
   testCaseId: string;
-  status: "PASS" | "FAIL" | "SKIP";
+  status: "PASS" | "FAIL" | "BLOCKED" | "SKIP";
   durationMs: number | null;
   testData: string | null;
   expectedResult: string | null;
   actualResult: string | null;
   error: string | null;
+  screenshotKey: string | null;
   screenshotUrl: string | null;
   order: number;
   code: string;
@@ -234,6 +236,7 @@ export interface TestRunResultRecord {
 
 export interface TestRunDetail {
   testRun: TestRunSummary;
+  module: { id: string; name: string; baseUrl: string | null } | null;
   results: TestRunResultRecord[];
 }
 
@@ -256,19 +259,61 @@ export interface ModuleReport {
     project: { name: string; baseUrl: string; environment: string };
     module: { id: string; name: string; discoveryStatus: string };
     discovery: { sessionId: string; status: string; startedAt: string | null; completedAt: string | null; error: string | null } | null;
-    counts: {
-      pages: number;
-      forms: number;
-      actions: number;
-      transitions: number;
-      workflows: number;
-      testCases: number;
-      artifacts: number;
-      roles: number;
+      counts: {
+        pages: number;
+        forms: number;
+        elements: number;
+        actions: number;
+        transitions: number;
+        workflows: number;
+        testCases: number;
+        artifacts: number;
+        roles: number;
+      };
+      roles: string[];
+      testRuns: ModuleReportRun[];
+      testSummary: {
+        runs: number;
+        executed: number;
+        passed: number;
+        failed: number;
+        blocked: number;
+        skipped: number;
+        screenshots: number;
+      };
+      coverage: {
+        testCasesCreated: number;
+        testCasesExecuted: number;
+        untestedTestCases: number;
+        pagesDiscovered: number;
+        workflowsDiscovered: number;
+      };
     };
-    roles: string[];
-  };
-}
+  }
+
+  export interface ModuleReportRun {
+    id: string;
+    status: string;
+    startedAt: string | null;
+    completedAt: string | null;
+    totalCases: number | null;
+    passedCases: number | null;
+    failedCases: number | null;
+    skippedCases: number | null;
+    error: string | null;
+    executed: number;
+    passed: number;
+    failed: number;
+    blocked: number;
+    skipped: number;
+    screenshots: number;
+    storedTotal: number | null;
+    storedPassed: number | null;
+    storedFailed: number | null;
+    storedSkipped: number | null;
+    countersConsistent: boolean;
+  }
+
 
 export function useModuleReport(moduleId: string) {
   return useQuery({

@@ -30,6 +30,8 @@ export interface RunContext {
   runId: string;
   secrets: string[];
   timeoutMs: number;
+  /** Surfaces non-fatal capture problems; evidence failures must never be silent. */
+  log?: (message: string) => void;
 }
 
 const NAVIGATION_TIMEOUT_MS = 20000;
@@ -49,18 +51,25 @@ export async function executeCase(ctx: RunContext, testCase: ExecutableCase, ord
     }
     const finalStep = lastVerifyStep(testCase.steps);
     if (!finalStep?.expect) {
-      return finish(ctx, page, testCase, startedAt, order, {
+      // `return await` is required: a bare `return promise` lets the `finally`
+      // block close the context before the screenshot in finish() settles.
+      return await finish(ctx, page, testCase, startedAt, order, {
         status: "SKIP",
         actual: "No machine-checkable expectation; requires manual verification",
       });
     }
     const outcome = await evaluateExpectation(page, finalStep.expect);
-    return finish(ctx, page, testCase, startedAt, order, {
+    return await finish(ctx, page, testCase, startedAt, order, {
       status: outcome.isSatisfied ? "PASS" : "FAIL",
       actual: outcome.detail,
+      // A failure must carry its reason, otherwise the report shows a red row
+      // with no explanation of which expectation was not met.
+      error: outcome.isSatisfied
+        ? undefined
+        : `Expectation not met: expected ${describeExpectation(finalStep.expect)}; observed ${outcome.detail}`,
     });
   } catch (error) {
-    return finish(ctx, page, testCase, startedAt, order, {
+    return await finish(ctx, page, testCase, startedAt, order, {
       status: "FAIL",
       actual: "Execution error",
       error: error instanceof Error ? error.message : String(error),
@@ -149,10 +158,29 @@ async function captureRunEvidence(ctx: RunContext, page: Page, testCase: Executa
     const key = `modules/${ctx.moduleId}/runs/${ctx.runId}/${slugify(testCase.name)}.png`;
     await ctx.storage.put(key, Buffer.from(buffer), "image/png");
     return key;
-  } catch {
+  } catch (error) {
+    // Never swallow this silently: a missing screenshot is invisible evidence loss,
+    // and an empty catch here previously hid a 100% failure rate.
+    ctx.log?.(`evidence capture failed for "${testCase.name}": ${error instanceof Error ? error.message : String(error)}`);
     return null;
   }
 }
 
 export { NAVIGATION_TIMEOUT_MS };
 export type { Expectation };
+
+/** Human-readable form of an expectation, used in failure messages. */
+function describeExpectation(expectation: Expectation): string {
+  switch (expectation.kind) {
+    case "navigated_away":
+      return `navigation away from ${expectation.fromUrl}`;
+    case "stayed_on_page":
+      return `to remain on ${expectation.fromUrl}`;
+    case "error_message_present":
+      return "an error message to be shown";
+    case "any_of":
+      return `one of [${expectation.options.map(describeExpectation).join(" | ")}]`;
+    default:
+      return "an unrecognised expectation";
+  }
+}

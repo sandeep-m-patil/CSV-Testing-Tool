@@ -6,17 +6,19 @@ import { Printer, RotateCw } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { ModuleNav } from "@/features/modules/module-nav";
-import { useDiscovery, useWorkflows, type DiscoveryProgress, type WorkflowRecord } from "@/features/hooks";
+import { useDiscovery, useModuleReport, useWorkflows, type DiscoveryProgress, type WorkflowRecord } from "@/features/hooks";
 import { ReportSummary } from "@/features/discovery/report/report-summary";
 import { ActionsTable, HistoryTable, PagesTable, WorkflowsList, type ReportAction, type ReportPage } from "@/features/discovery/report/report-tables";
 import { ReportLogs } from "@/features/discovery/report/report-logs";
 import { ReportGallery, type ReportShot } from "@/features/discovery/report/report-gallery";
+import { TestResultsPanel } from "@/features/test-runs/test-results-panel";
 
 export default function ModuleReportPage() {
   const params = useParams<{ moduleId: string }>();
   const moduleId = params.moduleId;
   const { data, isLoading, refetch, isFetching } = useDiscovery(moduleId);
   const { data: workflows } = useWorkflows(moduleId);
+  const { data: moduleReport } = useModuleReport(moduleId);
 
   const built = useMemo(
     () => buildReport(data, (workflows ?? []).filter(isCurrentSessionWorkflow(data?.session?.id))),
@@ -55,6 +57,7 @@ export default function ModuleReportPage() {
         </div>
       </div>
 
+      {moduleReport && <TestResultsPanel moduleId={moduleId} report={moduleReport} />}
       <ReportSummary data={built.summary} />
       <PagesTable pages={built.pages} />
       <ActionsTable actions={built.actions} />

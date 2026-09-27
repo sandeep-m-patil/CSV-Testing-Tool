@@ -1,28 +1,12 @@
 "use client";
 
 import { useState } from "react";
-import { CheckCircle2, CircleSlash, XCircle } from "lucide-react";
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import type { TestRunResultRecord, TestRunSummary } from "@/features/hooks";
+import { STATUS_FILTERS, Stat, StatusBadge, StatusIcon, passRate, type StatusFilter } from "./status";
 
-const STATUS_FILTERS = ["ALL", "PASS", "FAIL", "SKIP"] as const;
-type StatusFilter = (typeof STATUS_FILTERS)[number];
-
-function passRate(run: TestRunSummary): number {
-  if (run.totalCases === 0) return 0;
-  return Math.round((run.passedCases / run.totalCases) * 100);
-}
-
-function StatusIcon({ status }: { status: TestRunResultRecord["status"] }) {
-  if (status === "PASS") return <CheckCircle2 className="h-4 w-4 text-emerald-500" />;
-  if (status === "FAIL") return <XCircle className="h-4 w-4 text-red-500" />;
-  return <CircleSlash className="h-4 w-4 text-amber-500" />;
-}
-
-function StatusBadge({ status }: { status: TestRunResultRecord["status"] }) {
-  const variant = status === "PASS" ? "success" : status === "FAIL" ? "destructive" : "warning";
-  return <Badge variant={variant}>{status}</Badge>;
+function runPassRate(run: TestRunSummary): number {
+  return passRate(run.passedCases, run.totalCases);
 }
 
 export function RunTotals({ run }: { run: TestRunSummary }) {
@@ -32,16 +16,7 @@ export function RunTotals({ run }: { run: TestRunSummary }) {
       <Stat label="Passed" value={run.passedCases} tone="text-emerald-600 dark:text-emerald-400" />
       <Stat label="Failed" value={run.failedCases} tone="text-red-600 dark:text-red-400" />
       <Stat label="Skipped" value={run.skippedCases} tone="text-amber-600 dark:text-amber-400" />
-      <Stat label="Pass rate" value={`${passRate(run)}%`} />
-    </div>
-  );
-}
-
-function Stat({ label, value, tone }: { label: string; value: number | string; tone?: string }) {
-  return (
-    <div className="rounded-xl border bg-card p-3">
-      <div className="text-xs uppercase tracking-wide text-muted-foreground">{label}</div>
-      <div className={`mt-1 text-2xl font-semibold tabular-nums ${tone ?? ""}`}>{value}</div>
+      <Stat label="Pass rate" value={`${runPassRate(run)}%`} />
     </div>
   );
 }
@@ -127,22 +102,26 @@ export function TestResultGrid({ results }: { results: TestRunResultRecord[] }) 
 
       {lightbox?.screenshotUrl && (
         <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4"
+          className="fixed inset-0 z-50 flex flex-col bg-black/90 p-4"
           role="dialog"
           aria-modal="true"
           onClick={() => setLightbox(null)}
         >
-          <div className="max-h-full max-w-5xl overflow-auto rounded-lg bg-background p-4">
-            <div className="mb-3 flex items-start justify-between gap-4">
-              <div>
-                <div className="font-semibold">{lightbox.name}</div>
-                <div className="text-xs text-muted-foreground">{lightbox.expectedResult ?? ""}</div>
-              </div>
-              <Button size="sm" variant="outline" onClick={() => setLightbox(null)}>
-                Close
-              </Button>
+          <div className="mb-3 flex shrink-0 items-start justify-between gap-4">
+            <div className="min-w-0">
+              <div className="font-mono text-xs text-white/70">{lightbox.code}</div>
+              <div className="truncate font-semibold text-white">{lightbox.name}</div>
             </div>
-            <img src={lightbox.screenshotUrl} alt={lightbox.name} className="w-full rounded border" />
+            <Button size="sm" variant="outline" onClick={() => setLightbox(null)}>
+              Close
+            </Button>
+          </div>
+          <div className="min-h-0 flex-1 overflow-auto">
+            <img
+              src={lightbox.screenshotUrl}
+              alt={lightbox.name}
+              className="block h-auto w-full rounded border"
+            />
           </div>
         </div>
       )}

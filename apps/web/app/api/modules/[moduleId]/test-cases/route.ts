@@ -18,7 +18,7 @@ const moduleId = routeParams['moduleId']!;
     ...row,
     createdAt: row.createdAt.toISOString(),
     updatedAt: row.updatedAt.toISOString(),
-    code: `TC-${String(index + 1).padStart(3, "0")}`,
+    code: row.code ?? `TC-${String(index + 1).padStart(4, "0")}`,
     steps: (row.steps as unknown as Array<Record<string, unknown>>) ?? [],
   }));
 

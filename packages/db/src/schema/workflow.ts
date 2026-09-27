@@ -1,4 +1,4 @@
-import { boolean, index, integer, jsonb, pgTable, text, timestamp, uuid, varchar } from "drizzle-orm/pg-core";
+import { boolean, index, integer, jsonb, pgTable, text, timestamp, uniqueIndex, uuid, varchar } from "drizzle-orm/pg-core";
 import { discoverySessions } from "./discovery";
 import { modules } from "./project";
 
@@ -63,8 +63,9 @@ export const testCases = pgTable(
       .notNull()
       .references(() => modules.id, { onDelete: "cascade" }),
     workflowId: uuid("workflow_id").references(() => workflows.id, { onDelete: "set null" }),
-    discoverySessionId: uuid("discovery_session_id").references(() => discoverySessions.id, { onDelete: "set null" }),
-    name: varchar("name", { length: 200 }).notNull(),
+  discoverySessionId: uuid("discovery_session_id").references(() => discoverySessions.id, { onDelete: "set null" }),
+  code: varchar("code", { length: 64 }),
+  name: varchar("name", { length: 200 }).notNull(),
     description: text("description"),
     type: varchar("type", { length: 24 }).notNull(),
     priority: varchar("priority", { length: 16 }).notNull().default("MEDIUM"),
@@ -79,8 +80,9 @@ export const testCases = pgTable(
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => [
-    index("test_cases_module_id_idx").on(table.moduleId),
-    index("test_cases_workflow_id_idx").on(table.workflowId),
+  index("test_cases_module_id_idx").on(table.moduleId),
+  uniqueIndex("test_cases_module_code_idx").on(table.moduleId, table.code),
+  index("test_cases_workflow_id_idx").on(table.workflowId),
     index("test_cases_session_id_idx").on(table.discoverySessionId),
     index("test_cases_status_idx").on(table.status),
     index("test_cases_created_at_idx").on(table.createdAt),

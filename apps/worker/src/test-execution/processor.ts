@@ -31,7 +31,15 @@ export async function processTestRunJob(job: Job<TestRunJobData>): Promise<void>
     localDir: env.STORAGE_LOCAL_DIR,
     publicBaseUrl: env.STORAGE_PUBLIC_BASE_URL,
   });
-  const ctx: RunContext = { browser, storage, moduleId, runId: testRunId, secrets, timeoutMs: 0 };
+  const ctx: RunContext = {
+    browser,
+    storage,
+    moduleId,
+    runId: testRunId,
+    secrets,
+    timeoutMs: 0,
+    log: (message) => log.warn({ moduleId, testRunId }, message),
+  };
 
   let passed = 0;
   let failed = 0;
