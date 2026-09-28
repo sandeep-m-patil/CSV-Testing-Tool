@@ -77,7 +77,7 @@ role-gated approval flows for discovery to crawl.
 | `@repo/db` | Drizzle client (`getDb`/`closeAll`, postgres-js driver), schema (see below), migrations, seed |
 | `@repo/schemas` | Zod input/output schemas shared by web + worker (auth, projects, modules, discovery, credentials, test data, workflows, test cases) |
 | `@repo/browser` | Playwright wrappers only — element collection, action detection (`detectActions`), navigation detection, page classification (`classifyPage`, `derivePageName`), locator resolution (`resolveLocator`, `LocatorHints`), DOM masking (`maskSensitiveInputs`/`unmaskSensitiveInputs`), page model (`AnalyzedPage`) |
-| `@repo/ai` | `AiProvider` adapters: `mock`, `local`, `openai` — submit-kind detection and page analysis used to augment deterministic logic |
+| `@repo/ai` | `AiProvider` interface + `mock` / `local` / `openai` adapters. ⚠️ **Never invoked** — the provider is constructed at `runner.ts:107` and only `.label` is read; `interpretPage` / `analyzeWorkflows` have zero call sites, and there is no Gemini implementation. See `tech-stack.md` § AI and agent integration status |
 
 ## Data model (`packages/db/src/schema`)
 

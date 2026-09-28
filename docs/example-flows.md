@@ -11,9 +11,10 @@ pnpm db:seed
 Creates:
 
 - **User** — `demo@autotest.dev` / `demo1234`.
-- **Project** — e.g. "Pharma QA 2026".
-- **Application** — "Pharma LIMS", environment `staging`, target `http://localhost:4000`.
-- **Modules** (5) — e.g. **Materials**, **Lab Books**, **Review**.
+- **Project** — e.g. "Pharma QA 2026", targeting `http://localhost:4000`. The
+  project *is* the application; it holds the base URL and environment.
+- **Modules** — e.g. **Materials**, **Lab Books**, **Review**, plus the
+  auto-provisioned **Whole site** module.
 - **Credentials** (2) + **test data sets** (2) pre-attached to modules.
 
 > Requires a demo target running at `http://localhost:4000` for a full discovery run.
@@ -22,7 +23,7 @@ Creates:
 
 1. `pnpm dev:web` → http://localhost:3000
 2. Sign in as `demo@autotest.dev` / `demo1234`.
-3. Open **Projects → Pharma QA 2026 → Pharma LIMS → Materials**.
+3. Open **Projects → Pharma QA 2026 → Materials**.
 
 The module page shows status and a **Discover** entry point.
 
@@ -35,17 +36,23 @@ Open the **Config** tab:
 
 ## 4. Run discovery
 
-Click **Discover** (optionally choose the credential role to log in with).
+Click **Discover**. (The API accepts an optional `role` to log in with, but the
+UI button sends an empty body and there is no role selector yet — the module's
+first credential is used.)
 
 `POST /api/modules/:moduleId/discover`:
 
 1. `requireSession()` + `requireModuleAccess()` + CSRF check.
-2. Rejects the request if the application `environment === "production"` (`PRODUCTION_BLOCKED`).
-3. Requires `REDIS_URL`; otherwise `REDIS_UNCONFIGURED` (503) with a hint to start Redis.
-4. Inserts a `discoverySessions` row with status `QUEUED`.
-5. Enqueues a BullMQ job `{ discoverySessionId, moduleId, applicationId, projectId, role }`.
-6. Flips module + application to `DISCOVERING`.
-7. Returns `201` with the session id — open the Discovery tab to watch it stream.
+2. Requires `REDIS_URL`; otherwise `REDIS_UNCONFIGURED` (503) with a hint to start Redis.
+3. Inserts a `discoverySessions` row with status `QUEUED`.
+4. Enqueues a BullMQ job `{ discoverySessionId, moduleId, projectId, role }`.
+5. Flips the module to `DISCOVERING`.
+6. Returns `201` with the session id — open the Discovery tab to watch it stream.
+
+> **No production guard on this route.** Auto-discovery is skipped for
+> `environment = "production"` at project creation, but this endpoint performs no
+> environment check at all, so a production module can be crawled deliberately.
+> There is no `PRODUCTION_BLOCKED` error code in the codebase.
 
 ## 5. The worker explores
 
@@ -91,8 +98,7 @@ Evidence screenshots are served back through the app (`/storage/...`) from the s
 
 | Thing | What it is |
 | --- | --- |
-| Project | Workspace container |
-| Application | Deployed system under test (has an environment) |
+| Project | Workspace container — **is** the application under test (has a base URL + environment). There is no separate Application entity. |
 | Module | Browsable area targeted by discovery |
 | Discovery session | One automated exploration run (QUEUED → RUNNING → COMPLETED/FAILED) |
 | Workflow | Human-readable scenario (GOTO/FILL/SUBMIT/VERIFY) |

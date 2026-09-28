@@ -16,7 +16,7 @@ All env vars are **app-scoped** — the web app, worker, and db package read the
 | `STORAGE_LOCAL_DIR` | Where local evidence lives; web + worker share `../data/storage`. |
 | `STORAGE_PUBLIC_BASE_URL` | Base URL for public storage URLs, `http://localhost:3000`. |
 | `NEXT_PUBLIC_APP_URL` | Public app base URL, `http://localhost:3000`. |
-| `AI_PROVIDER` | App/worker default `mock` (deterministic). |
+| `AI_PROVIDER` | ⚠️ Read but **has no effect** — the provider is never invoked. Defaults to `mock`. See `tech-stack.md` § AI and agent integration status. |
 
 ## 2. `apps/worker/.env`
 
@@ -35,7 +35,7 @@ All env vars are **app-scoped** — the web app, worker, and db package read the
 | `DISCOVERY_PAGE_SLEEP_MS` | Pause between pages. | `350` |
 | `WORKER_CONCURRENCY` | Parallel discovery jobs (1–8). | `2` |
 | `STORAGE_DRIVER` / `STORAGE_LOCAL_DIR` / `STORAGE_PUBLIC_BASE_URL` | Same as web. | — |
-| `AI_PROVIDER`, `OPENAI_*`, `LOCAL_AI_*` | AI augmentation (optional). | `mock` |
+| `AI_PROVIDER`, `OPENAI_*`, `LOCAL_AI_*` | ⚠️ Accepted but **unused** — no AI provider is ever called, and there is no Gemini implementation. Defaults to `mock`. | `mock` |
 
 ## 3. `packages/db/.env`
 
