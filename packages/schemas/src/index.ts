@@ -3,6 +3,7 @@ export * from "./common";
 export * from "./project";
 export * from "./module";
 export * from "./config";
+export * from "./test-data";
 export * from "./discovery";
 export * from "./workflow";
 export * from "./test-case";

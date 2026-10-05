@@ -55,10 +55,10 @@ export function TestRunReport({ run, module, results, onDownloadJson }: Props) {
 
       <section className="grid grid-cols-2 gap-3 sm:grid-cols-4 lg:grid-cols-7">
         <Stat label="Total" value={run.totalCases} />
-        <Stat label="Passed" value={passed} tone="text-emerald-600 dark:text-emerald-400" />
-        <Stat label="Failed" value={failed} tone="text-red-600 dark:text-red-400" />
-        <Stat label="Blocked" value={blocked} tone="text-slate-600 dark:text-slate-300" />
-        <Stat label="Skipped" value={skipped} tone="text-amber-600 dark:text-amber-400" />
+        <Stat label="Passed" value={passed} tone="text-success" />
+        <Stat label="Failed" value={failed} tone="text-destructive" />
+        <Stat label="Blocked" value={blocked} tone="text-muted-foreground" />
+        <Stat label="Skipped" value={skipped} tone="text-warning" />
         <Stat label="Pass rate" value={`${passRate(passed, results.length)}%`} />
         <Stat label="Evidence" value={`${withShot}/${results.length}`} />
       </section>
@@ -148,7 +148,7 @@ function Detail({
   mono?: boolean;
   tone?: "error" | "muted";
 }) {
-  const toneClass = tone === "error" ? "text-red-600 dark:text-red-400" : tone === "muted" ? "text-muted-foreground" : "";
+  const toneClass = tone === "error" ? "text-destructive" : tone === "muted" ? "text-muted-foreground" : "";
   return (
     <div>
       <dt className="text-xs uppercase tracking-wide text-muted-foreground">{label}</dt>

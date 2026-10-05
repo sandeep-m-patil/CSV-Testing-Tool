@@ -28,7 +28,10 @@ const credentialId = routeParams['credentialId']!;
   if (raw.role !== undefined) set.role = raw.role;
   if (raw.username !== undefined) set.username = raw.username;
   if (raw.password !== undefined) {
-    const username = raw.username ?? existing.username;
+    // `username` is nullable so that a login keyed on another field can be stored.
+    // The encrypt/decrypt pair is still username+password; field-keyed credentials
+    // are handled by the dynamic-credential work.
+    const username = raw.username ?? existing.username ?? "";
     set.secretData = credentialCrypto.encryptCredentials(moduleId, username, raw.password);
   }
   set.updatedAt = new Date();

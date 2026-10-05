@@ -1,4 +1,5 @@
 import type { Locator, Page } from "playwright";
+import type { SemanticResolver, SemanticTarget } from "./semantic-target";
 
 /**
  * Resolves the portable locator hints stored in generated test cases
@@ -124,9 +125,18 @@ export async function resolveLocator(page: Page, hint: string): Promise<Locator 
   return candidates.nth(target);
 }
 
-export async function waitForLocator(page: Page, hint: string): Promise<Locator> {
+export async function waitForLocator(
+  page: Page,
+  hint: string,
+  resolver: SemanticResolver | null = null,
+): Promise<Locator> {
   const locator = await resolveLocator(page, hint);
   if (locator) return locator;
+
+  if (resolver?.isEnabled()) {
+    const semantic = await resolver.resolve(page, semanticTargetFor(hint));
+    if (semantic) return semantic;
+  }
 
   const name = textOf(hint);
   if (name !== null) throw new Error(`No visible control named "${name}"`);
@@ -136,6 +146,33 @@ export async function waitForLocator(page: Page, hint: string): Promise<Locator>
   const fallback = page.locator(parsed.selector).first();
   await fallback.waitFor({ state: "visible", timeout: LOCATOR_TIMEOUT_MS });
   return fallback;
+}
+
+/**
+ * Describes a failed locator hint in terms of what the user meant, which is the
+ * only thing a semantic agent is given: no selector, no DOM path, no index.
+ */
+function semanticTargetFor(hint: string): SemanticTarget {
+  const text = textOf(hint);
+  if (text !== null) return { intent: `the control labelled "${text}"`, role: "button" };
+
+  const role = hint.split(":")[1];
+  if (selectorFor(hint) === null || !role) return { intent: `the ${hint} control` };
+  return { intent: `the ${role} input on this form`, role: roleOfRole(role) };
+}
+
+function roleOfRole(role: string): SemanticTarget["role"] {
+  const known: Record<string, string> = {
+    email: "textbox",
+    password: "textbox",
+    text: "textbox",
+    select: "combobox",
+    checkbox: "checkbox",
+    radio: "radio",
+    submit: "button",
+    button: "button",
+  };
+  return known[role];
 }
 
 export { LOCATOR_TIMEOUT_MS };

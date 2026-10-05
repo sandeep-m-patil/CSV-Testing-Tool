@@ -3,7 +3,7 @@ import { z } from "zod";
 export const StorageDriverSchema = z.enum(["local", "s3"]);
 export type StorageDriver = z.infer<typeof StorageDriverSchema>;
 
-export const AiProviderKindSchema = z.enum(["mock", "openai", "local"]);
+export const AiProviderKindSchema = z.enum(["mock", "openai", "gemini", "grok", "local"]);
 export type AiProviderKind = z.infer<typeof AiProviderKindSchema>;
 
 export const SharedEnvSchema = z.object({
@@ -28,6 +28,14 @@ export const SharedEnvSchema = z.object({
   OPENAI_API_KEY: z.string().optional(),
   OPENAI_BASE_URL: z.string().url().optional(),
   OPENAI_MODEL: z.string().default("gpt-4o-mini"),
+  GEMINI_API_KEY: z.string().optional(),
+  /** Overridable for Vertex AI or regional endpoints. */
+  GEMINI_BASE_URL: z.string().url().optional(),
+  GEMINI_MODEL: z.string().default("gemini-2.5-flash"),
+  /** xAI Grok, via its OpenAI-compatible endpoint. */
+  XAI_API_KEY: z.string().optional(),
+  XAI_BASE_URL: z.string().url().optional(),
+  XAI_MODEL: z.string().default("grok-4.6"),
   LOCAL_AI_BASE_URL: z.string().url().optional(),
   LOCAL_AI_MODEL: z.string().default("llama3.1"),
 });

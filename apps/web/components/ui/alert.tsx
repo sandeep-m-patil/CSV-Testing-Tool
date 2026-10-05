@@ -8,9 +8,11 @@ const alertVariants = cva(
     variants: {
       variant: {
         default: "bg-background text-foreground",
-        destructive: "border-destructive/50 text-destructive dark:border-destructive [&>svg]:text-destructive",
-        warning: "border-amber-300 bg-amber-50 text-amber-900 [&>svg]:text-amber-800",
-        success: "border-emerald-300 bg-emerald-50 text-emerald-900 [&>svg]:text-emerald-700",
+        // Tinted backgrounds stay dark so alert text remains readable; the
+        // previous light-mode fills (amber-50 / emerald-50) were unusable here.
+        destructive: "border-destructive/50 bg-destructive/10 text-destructive [&>svg]:text-destructive",
+        warning: "border-warning/50 bg-warning/10 text-warning [&>svg]:text-warning",
+        success: "border-success/50 bg-success/10 text-success [&>svg]:text-success",
       },
     },
     defaultVariants: { variant: "default" },

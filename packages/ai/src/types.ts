@@ -1,7 +1,7 @@
 import type { AiPageContext, AiPageInterpretation, AiWorkflowAnalysis } from "@repo/schemas";
 
 export interface AIProvider {
-  readonly kind: "mock" | "openai" | "local";
+  readonly kind: "mock" | "openai" | "gemini" | "grok" | "local";
   readonly label: string;
   /** Structured, deterministic browser context in — validated JSON out. Never raw browser control. */
   interpretPage(context: AiPageContext): Promise<AiPageInterpretation>;

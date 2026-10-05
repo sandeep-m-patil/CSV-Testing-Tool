@@ -1,14 +1,18 @@
-import { AiPageContextSchema, AiPageInterpretationSchema, AiWorkflowAnalysisSchema, type AiPageContext, type AiPageInterpretation, type AiWorkflowAnalysis } from "@repo/schemas";
+import { AiPageInterpretationSchema, AiWorkflowAnalysisSchema, type AiPageContext, type AiPageInterpretation, type AiWorkflowAnalysis } from "@repo/schemas";
 import type { AIProvider } from "./types";
+import { sanitizePageContext } from "./sanitize";
 
 export interface OpenAICompatibleOptions {
   label: string;
   apiKey: string;
   baseUrl: string;
   model: string;
+  /** Overrides the reported kind, e.g. "grok" for an xAI-compatible endpoint. */
+  kind?: AIProvider["kind"];
   fetcher?: typeof fetch;
 }
 
+/** Shared by every OpenAI-compatible vendor (OpenAI, xAI/Grok, and proxies). */
 const SYSTEM_PROMPT = [
   "You are the discovery intelligence layer of an autonomous web application testing platform.",
   "You receive a STRUCTURED, DETERMINISTIC snapshot of a page (URL, title, accessible elements).",
@@ -16,6 +20,7 @@ const SYSTEM_PROMPT = [
   "Return strictly valid JSON matching the requested schema.",
   "Never invent fields or actions that are not present in the provided elements.",
   "Do not include passwords, tokens, or secrets of any kind in your output.",
+  "Never emit Playwright code, CSS selectors, or coordinates.",
 ].join(" ");
 
 async function chatJson(
@@ -54,18 +59,19 @@ async function chatJson(
 }
 
 export class OpenAICompatibleProvider implements AIProvider {
-  readonly kind: AIProvider["kind"] = "openai" as const;
+  readonly kind: AIProvider["kind"];
   readonly label: string;
 
   private readonly options: OpenAICompatibleOptions;
 
   constructor(options: OpenAICompatibleOptions) {
+    this.kind = options.kind ?? "openai";
     this.label = options.label;
     this.options = options;
   }
 
   async interpretPage(context: AiPageContext): Promise<AiPageInterpretation> {
-    const parsedContext = AiPageContextSchema.parse(context);
+    const parsedContext = sanitizePageContext(context);
     const raw = await chatJson(this.options, {
       task: "interpret_page",
       schema: "pageType, purpose, fields[{name,label?,inputType?,required}], actions[{name,type,targetUrl?}]",

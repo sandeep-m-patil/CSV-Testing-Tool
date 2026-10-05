@@ -4,17 +4,19 @@ import type { DetectedAction } from "@repo/browser";
 import { actionKey } from "./action-space";
 import {
   discoveredActions,
-  discoveryArtifacts,
   discoveredElements,
   discoveredPages,
+  discoveryArtifacts,
   discoveryLogs,
   discoverySessions,
   modules,
+  navigationEdges,
   stateTransitions,
   testCases,
   testCaseSteps,
-  workflows,
+  uiStates,
   workflowSteps,
+  workflows,
   type NewDiscoveredActionRow,
   type NewDiscoveredElementRow,
   type NewDiscoveredPageRow,
@@ -101,20 +103,155 @@ export class DiscoveryStore {
     await this.db.update(discoverySessions).set(changes).where(eq(discoverySessions.id, this.scope.sessionId));
   }
 
-  async insertPage(page: NewDiscoveredPageRow): Promise<PageRecordResult> {
-    const existing = await this.db
+  /**
+   * Identity of a page for deduplication: the route pattern and fingerprint
+   * when known, otherwise the literal URL. Two concrete records of the same
+   * route collapse onto one node; two identical URLs always collapse.
+   */
+  private async findExistingPage(page: NewDiscoveredPageRow): Promise<string | null> {
+    const byUrl = await this.db
       .select({ id: discoveredPages.id })
       .from(discoveredPages)
       .where(and(eq(discoveredPages.discoverySessionId, this.scope.sessionId), eq(discoveredPages.url, page.url)))
       .limit(1);
+    if (byUrl[0]) return byUrl[0].id;
 
-    if (existing.length > 0 && existing[0]) {
-      return { id: existing[0].id, existing: true };
+    if (page.routePattern && page.pageFingerprint) {
+      const byRoute = await this.db
+        .select({ id: discoveredPages.id })
+        .from(discoveredPages)
+        .where(
+          and(
+            eq(discoveredPages.discoverySessionId, this.scope.sessionId),
+            eq(discoveredPages.routePattern, page.routePattern),
+            eq(discoveredPages.pageFingerprint, page.pageFingerprint),
+          ),
+        )
+        .limit(1);
+      if (byRoute[0]) return byRoute[0].id;
     }
+    return null;
+  }
+
+  async insertPage(page: NewDiscoveredPageRow): Promise<PageRecordResult> {
+    const existingId = await this.findExistingPage(page);
+    if (existingId) return { id: existingId, existing: true };
 
     const [row] = await this.db.insert(discoveredPages).values(page).returning({ id: discoveredPages.id });
     if (!row) throw new Error("Failed to insert discovered page");
     return { id: row.id, existing: false };
+  }
+
+  /**
+   * Backfills the identity columns once a page row exists. Discovery learns a
+   * page's route pattern only after the DOM has been analysed, so these are set
+   * in a second write instead of at insert time.
+   */
+  async updatePageIdentity(
+    pageId: string,
+    identity: { routePattern: string; canonicalUrl: string; pageFingerprint: string; domFingerprint: string },
+  ): Promise<void> {
+    await this.db
+      .update(discoveredPages)
+      .set({ ...identity, updatedAt: new Date() })
+      .where(eq(discoveredPages.id, pageId));
+  }
+
+  /**
+   * Records a distinct UI state of a page. Idempotent on
+   * (pageId, stateFingerprint), so revisiting the same state reuses the row
+   * instead of multiplying it on every crawl.
+   */
+  async upsertUiState(input: {
+    pageId: string;
+    routePattern: string | null;
+    stateFingerprint: string;
+    name: string;
+    isModal: boolean;
+    triggerLabel?: string | null;
+    triggerSelector?: string | null;
+    snapshot?: Record<string, unknown> | null;
+  }): Promise<string> {
+    const { sessionId, moduleId } = this.scope;
+    const existing = await this.db
+      .select({ id: uiStates.id })
+      .from(uiStates)
+      .where(and(eq(uiStates.pageId, input.pageId), eq(uiStates.stateFingerprint, input.stateFingerprint)))
+      .limit(1);
+    if (existing[0]) return existing[0].id;
+
+    const [row] = await this.db
+      .insert(uiStates)
+      .values({
+        discoverySessionId: sessionId,
+        moduleId,
+        pageId: input.pageId,
+        routePattern: input.routePattern,
+        stateFingerprint: input.stateFingerprint,
+        name: input.name.slice(0, 200),
+        isModal: input.isModal,
+        triggerLabel: input.triggerLabel ?? null,
+        triggerSelector: input.triggerSelector ?? null,
+        snapshot: input.snapshot ?? null,
+      })
+      .returning({ id: uiStates.id });
+    if (!row) throw new Error("Failed to insert ui state");
+    return row.id;
+  }
+
+  async attachUiState(pageId: string, uiStateId: string): Promise<void> {
+    await this.db.update(discoveredPages).set({ uiStateId }).where(eq(discoveredPages.id, pageId));
+  }
+
+  /**
+   * Stores the AI's page interpretation alongside the deterministic
+   * classification. The model only ever contributes intent here: it never
+   * supplies a locator and never influences PASS/FAIL.
+   */
+  async savePageInsight(
+    pageId: string,
+    insight: { pageType: string; purpose: string; fields: unknown[]; actions: unknown[]; source: string },
+  ): Promise<void> {
+    await this.db
+      .update(discoveredPages)
+      .set({
+        aiPageType: insight.pageType,
+        aiPurpose: insight.purpose,
+        aiFields: insight.fields,
+        aiActions: insight.actions,
+        aiSource: insight.source,
+      })
+      .where(eq(discoveredPages.id, pageId));
+  }
+
+  /**
+   * A navigation edge. `toPageId` stays null when the target has not been
+   * discovered yet, so unvisited links still appear in the graph.
+   */
+  async insertNavigationEdge(input: {
+    fromPageId: string;
+    toPageId?: string | null;
+    fromRoutePattern?: string | null;
+    toRoutePattern?: string | null;
+    toUrl?: string | null;
+    label?: string | null;
+    action?: string;
+    role?: string | null;
+    isNewPage?: boolean;
+  }): Promise<void> {
+    await this.db.insert(navigationEdges).values({
+      discoverySessionId: this.scope.sessionId,
+      moduleId: this.scope.moduleId,
+      fromPageId: input.fromPageId,
+      toPageId: input.toPageId ?? null,
+      fromRoutePattern: input.fromRoutePattern ?? null,
+      toRoutePattern: input.toRoutePattern ?? null,
+      toUrl: input.toUrl ?? null,
+      label: input.label ?? null,
+      action: input.action ?? "navigate",
+      role: input.role ?? null,
+      isNewPage: input.isNewPage ?? false,
+    });
   }
 
   async insertElements(pageId: string, elements: ElementRecord[]): Promise<number> {

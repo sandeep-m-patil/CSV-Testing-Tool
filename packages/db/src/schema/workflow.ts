@@ -1,6 +1,8 @@
 import { boolean, index, integer, jsonb, pgTable, text, timestamp, uniqueIndex, uuid, varchar } from "drizzle-orm/pg-core";
 import { discoverySessions } from "./discovery";
 import { modules } from "./project";
+import { testDataSets } from "./config";
+import { environments } from "./environment";
 
 export const workflows = pgTable(
   "workflows",
@@ -75,6 +77,11 @@ export const testCases = pgTable(
     precondition: text("precondition"),
     testData: text("test_data"),
     expectedResult: text("expected_result"),
+    /**
+     * Dataset this case is data-driven by. When set, the case is executed once
+     * per row, substituting `{{column}}` tokens in step values.
+     */
+    datasetId: uuid("dataset_id").references(() => testDataSets.id, { onDelete: "set null" }),
     steps: jsonb("steps").notNull().default([]),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
@@ -85,6 +92,7 @@ export const testCases = pgTable(
   index("test_cases_workflow_id_idx").on(table.workflowId),
     index("test_cases_session_id_idx").on(table.discoverySessionId),
     index("test_cases_status_idx").on(table.status),
+    index("test_cases_dataset_id_idx").on(table.datasetId),
     index("test_cases_created_at_idx").on(table.createdAt),
   ],
 );
@@ -121,6 +129,10 @@ export const testRuns = pgTable(
       .notNull()
       .references(() => modules.id, { onDelete: "cascade" }),
     triggeredBy: uuid("triggered_by"),
+    /** Deployment target this run was executed against. */
+    environmentId: uuid("environment_id").references(() => environments.id, { onDelete: "set null" }),
+    /** Target base URL as resolved at run time, so a later rename cannot rewrite history. */
+    baseUrl: text("base_url"),
     status: varchar("status", { length: 16 }).notNull().default("QUEUED"),
     totalCases: integer("total_cases").notNull().default(0),
     passedCases: integer("passed_cases").notNull().default(0),
@@ -134,6 +146,7 @@ export const testRuns = pgTable(
   (table) => [
     index("test_runs_module_id_idx").on(table.moduleId),
     index("test_runs_status_idx").on(table.status),
+    index("test_runs_environment_id_idx").on(table.environmentId),
     index("test_runs_created_at_idx").on(table.createdAt),
   ],
 );
@@ -150,6 +163,9 @@ export const testRunResults = pgTable(
     testCaseId: uuid("test_case_id")
       .notNull()
       .references(() => testCases.id, { onDelete: "cascade" }),
+    /** Set when this result came from expanding a data-driven case. */
+    datasetId: uuid("dataset_id").references(() => testDataSets.id, { onDelete: "set null" }),
+    datasetRow: integer("dataset_row"),
     status: varchar("status", { length: 8 }).notNull().default("SKIP"),
     durationMs: integer("duration_ms"),
     testData: text("test_data"),
@@ -164,6 +180,7 @@ export const testRunResults = pgTable(
     index("test_run_results_run_id_idx").on(table.testRunId),
     index("test_run_results_case_id_idx").on(table.testCaseId),
     index("test_run_results_status_idx").on(table.status),
+    index("test_run_results_dataset_id_idx").on(table.datasetId),
   ],
 );
 export type TestRunResultRow = typeof testRunResults.$inferSelect;

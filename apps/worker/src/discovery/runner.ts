@@ -1,7 +1,7 @@
 import { chromium, type Browser, type Page } from "playwright";
 import { createAIProvider, type AIProvider } from "@repo/ai";
 import { CredentialCrypto, createChildLogger, createStorage, type StorageProvider } from "@repo/core";
-import { analyzeCurrentPage, resolveLocator, type AnalyzedPage, type DetectedAction } from "@repo/browser";
+import { analyzeCurrentPage, normalizeRoute, resolveLocator, type AnalyzedPage, type DetectedAction } from "@repo/browser";
 import type { Db } from "@repo/db";
 import { credentials, discoveredActions, modules, projects, testDataSets } from "@repo/db/schema";
 import { and, eq } from "drizzle-orm";
@@ -12,7 +12,9 @@ import { actionKey, buildActionSpace, decideOneAction } from "./action-space";
 import { DiscoveryStore, type ActionRecord } from "./store";
 import { captureEvidence } from "../evidence";
 import { buildModuleScope, describeScope, isInScope, type ModuleScope } from "./scope";
-import { buildWorkflows } from "../workflows/builder";
+import { pageIdentity, stateFingerprint, stateName, type PageIdentity } from "./page-identity";
+import { interpretPageWithFallback } from "./ai-enrichment";
+import { buildWorkflows, enrichWithAiAnalysis } from "../workflows/builder";
 import { generateTestCases } from "../test-generation/generator";
 
 export interface RunInput {
@@ -26,7 +28,8 @@ export interface RunInput {
 export interface DecodedCredential {
   id: string;
   role: string;
-  username: string;
+  /** Nullable: a login may be keyed on a field other than a username. */
+  username: string | null;
   password: string | null;
 }
 
@@ -135,6 +138,7 @@ export async function runDiscovery(input: RunInput): Promise<void> {
     }
 
     budget.workflows = await buildWorkflows(ctx);
+    await enrichWithAiAnalysis(ctx);
     // Gate on the pages and actions this session actually exercised, not on the
     // number of newly created workflows. buildWorkflows returns 0 when it
     // reuses workflows from an earlier run, which previously skipped test-case
@@ -214,7 +218,7 @@ async function exploreAsRole(browser: Browser, ctx: DiscoveryContext, credential
       await ctx.store.log("event", `Started at ${page.url()} (no login required).`);
     }
 
-    await explorePage(page, ctx, actor, budget, visitedUrls, 0);
+    await explorePage(page, ctx, actor, budget, visitedUrls, 0, credential.role);
   } catch (error) {
     await ctx.store.log("warn", `Role exploration error: ${error instanceof Error ? error.message : String(error)}`);
   } finally {
@@ -283,6 +287,7 @@ async function explorePage(
   budget: StepBudget,
   visitedUrls: Set<string>,
   depth: number,
+  role: string,
 ): Promise<void> {
   const currentUrl = page.url();
   if (visitedUrls.has(currentUrl) || depth > actor.navigationDepthBudget) return;
@@ -303,6 +308,8 @@ async function explorePage(
     const analyzed = await analyzeCurrentPage(page, navOptions(ctx));
     if (!analyzed) break;
 
+    const identity = pageIdentity(analyzed.snapshot, analyzed.classification.pageType);
+
     const pageId = await ctx.store.insertPage({
       discoverySessionId: ctx.sessionId,
       moduleId: ctx.moduleId,
@@ -310,11 +317,13 @@ async function explorePage(
       title: analyzed.snapshot.title.slice(0, 300),
       name: pageName(analyzed),
       pageType: analyzed.classification.pageType,
+      role,
       order: budget.pages,
+      ...identity,
     });
 
     if (!pageId.existing && budget.pages < env.DISCOVERY_MAX_PAGES) {
-      await persistPageSnapshot(ctx, budget, page, analyzed, pageId.id, finalizedPages);
+      await persistPageSnapshot(ctx, budget, page, analyzed, pageId.id, finalizedPages, identity, role);
     }
 
     const freshActions = analyzed.actions.filter((action) => !persistedActionKeys.has(actionKey(action)));
@@ -370,7 +379,7 @@ async function explorePage(
         continue;
       }
 
-      const nextPageId = await findOrCreateNextPage(page, ctx, visitedUrls, budget, finalizedPages);
+      const nextPageId = await findOrCreateNextPage(page, ctx, visitedUrls, budget, finalizedPages, role);
       if (nextPageId) {
         await ctx.store.insertTransition({
           fromPageId: pageId.id,
@@ -378,8 +387,19 @@ async function explorePage(
           actionId: actionRowId ?? null,
           label: `${chosen.label} → ${page.url()}`,
         });
+        await ctx.store.insertNavigationEdge({
+          fromPageId: pageId.id,
+          toPageId: nextPageId,
+          fromRoutePattern: identity.routePattern,
+          toRoutePattern: normalizeRoute(page.url()),
+          toUrl: page.url(),
+          label: chosen.label,
+          action: chosen.operation,
+          role,
+          isNewPage: true,
+        });
       }
-      await explorePage(page, ctx, actor, budget, visitedUrls, depth + 1);
+      await explorePage(page, ctx, actor, budget, visitedUrls, depth + 1, role);
       return;
     }
   }
@@ -392,9 +412,17 @@ async function persistPageSnapshot(
   analyzed: AnalyzedPage,
   pageId: string,
   finalizedPages: Set<string>,
+  identity: PageIdentity,
+  role: string,
 ): Promise<void> {
   if (finalizedPages.has(analyzed.snapshot.url)) return;
   finalizedPages.add(analyzed.snapshot.url);
+
+  await ctx.store.updatePageIdentity(pageId, identity);
+  await recordUiState(ctx, analyzed, pageId, identity);
+
+  const insight = await interpretPageWithFallback(ctx.ai, analyzed);
+  await ctx.store.savePageInsight(pageId, insight);
 
   await ctx.store.insertElements(
     pageId,
@@ -430,6 +458,39 @@ async function persistPageSnapshot(
     });
   }
   await ctx.store.log("info", `Page discovered: ${pageName(analyzed)} (${analyzed.classification.pageType}) — ${analyzed.snapshot.url}`);
+  await ctx.store.log(
+    "info",
+    `  route=${identity.routePattern} fingerprint=${identity.pageFingerprint.slice(0, 12)} purpose="${insight.purpose}" (${insight.source}, role=${role})`,
+  );
+}
+
+/**
+ * Records this observation as a UI state of the page. The same state reached
+ * twice reuses its row, so the graph keeps one node per distinct rendering
+ * rather than one per visit.
+ */
+async function recordUiState(
+  ctx: DiscoveryContext,
+  analyzed: AnalyzedPage,
+  pageId: string,
+  identity: PageIdentity,
+): Promise<void> {
+  const fingerprint = stateFingerprint(analyzed.snapshot, identity.domFingerprint);
+  const uiStateId = await ctx.store.upsertUiState({
+    pageId,
+    routePattern: identity.routePattern,
+    stateFingerprint: fingerprint,
+    name: stateName(pageName(analyzed), analyzed.snapshot),
+    isModal: analyzed.snapshot.dialogs > 0,
+    triggerLabel: analyzed.snapshot.heading,
+    snapshot: {
+      forms: analyzed.snapshot.forms,
+      dialogs: analyzed.snapshot.dialogs,
+      tables: analyzed.snapshot.tables,
+      elements: analyzed.snapshot.elements.length,
+    },
+  });
+  await ctx.store.attachUiState(pageId, uiStateId);
 }
 
 async function recordEvidence(
@@ -463,10 +524,12 @@ async function findOrCreateNextPage(
   visitedUrls: Set<string>,
   budget: StepBudget,
   finalizedPages: Set<string>,
+  role: string,
 ): Promise<string | null> {
   const analyzed = await analyzeCurrentPage(page, navOptions(ctx));
   if (!analyzed) return null;
 
+  const identity = pageIdentity(analyzed.snapshot, analyzed.classification.pageType);
   const record = await ctx.store.insertPage({
     discoverySessionId: ctx.sessionId,
     moduleId: ctx.moduleId,
@@ -474,10 +537,12 @@ async function findOrCreateNextPage(
     title: analyzed.snapshot.title.slice(0, 300),
     name: pageName(analyzed),
     pageType: analyzed.classification.pageType,
+    role,
     order: budget.pages,
+    ...identity,
   });
   if (!record.existing && budget.pages < env.DISCOVERY_MAX_PAGES) {
-    await persistPageSnapshot(ctx, budget, page, analyzed, record.id, finalizedPages);
+    await persistPageSnapshot(ctx, budget, page, analyzed, record.id, finalizedPages, identity, role);
   }
   return record.id;
 }
@@ -532,7 +597,7 @@ export async function executeOne(
  * so a JSON parse is only attempted to detect seeded placeholder rows.
  */
 function decodeCredential(
-  credential: { id: string; role: string; username: string; secretData: string },
+  credential: { id: string; role: string; username: string | null; secretData: string },
   moduleId: string,
 ): DecodedCredential {
   const base = { id: credential.id, role: credential.role, username: credential.username, password: null };
@@ -621,6 +686,12 @@ function resolveAiConfig(workerEnv: WorkerEnv) {
     openaiApiKey: workerEnv.OPENAI_API_KEY ?? undefined,
     openaiBaseUrl: workerEnv.OPENAI_BASE_URL ?? undefined,
     openaiModel: workerEnv.OPENAI_MODEL ?? undefined,
+    geminiApiKey: workerEnv.GEMINI_API_KEY ?? undefined,
+    geminiBaseUrl: workerEnv.GEMINI_BASE_URL ?? undefined,
+    geminiModel: workerEnv.GEMINI_MODEL ?? undefined,
+    xaiApiKey: workerEnv.XAI_API_KEY ?? undefined,
+    xaiBaseUrl: workerEnv.XAI_BASE_URL ?? undefined,
+    xaiModel: workerEnv.XAI_MODEL ?? undefined,
     localBaseUrl: workerEnv.LOCAL_AI_BASE_URL ?? undefined,
     localModel: workerEnv.LOCAL_AI_MODEL ?? undefined,
   };

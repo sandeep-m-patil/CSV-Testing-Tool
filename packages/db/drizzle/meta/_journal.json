@@ -50,6 +50,62 @@
       "when": 1790507000000,
       "tag": "0006_add_test_case_code",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1790508000000,
+      "tag": "0007_credential_dynamic_fields",
+      "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1790509000000,
+      "tag": "0008_discovered_element_input_type",
+      "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1790510000000,
+      "tag": "0009_credential_form_type",
+      "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1790511000000,
+      "tag": "0010_discovered_page_route_pattern",
+      "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "7",
+      "when": 1790512000000,
+      "tag": "0011_application_model_navigation",
+      "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "7",
+      "when": 1790513000000,
+      "tag": "0012_application_model_ai_intent",
+      "breakpoints": true
+    },
+    {
+      "idx": 13,
+      "version": "7",
+      "when": 1790514000000,
+      "tag": "0013_environments_coverage_findings",
+      "breakpoints": true
+    },
+    {
+      "idx": 14,
+      "version": "7",
+      "when": 1790515000000,
+      "tag": "0014_data_driven_runs",
+      "breakpoints": true
     }
   ]
 }

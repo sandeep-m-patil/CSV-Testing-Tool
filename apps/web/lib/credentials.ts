@@ -7,7 +7,8 @@ export type MaskedCredential = {
   id: string;
   moduleId: string;
   role: string;
-  username: string;
+  /** Nullable in the schema: a login may be identified by a field other than a username. */
+  username: string | null;
   hasSecret: boolean;
   createdAt: string;
   updatedAt: string;

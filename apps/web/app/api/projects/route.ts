@@ -1,11 +1,12 @@
 import { desc, eq, and, like, type SQL } from "drizzle-orm";
 import { projects } from "@repo/db/schema";
 import { CreateProjectInputSchema } from "@repo/schemas";
-import { AppError } from "@repo/core";
+import { AppError, safeUrlError } from "@repo/core";
 import { created, ok, parseBody, route } from "@/lib/api";
 import { assertSameOrigin } from "@/lib/csrf";
 import { requireSession } from "@/lib/auth/get-session";
 import { db } from "@/lib/db";
+import { getEnv } from "@/lib/env";
 import { provisionProjectDiscovery } from "@/lib/discovery";
 
 export const GET = route(async (request) => {
@@ -41,6 +42,7 @@ export const POST = route(async (request) => {
   assertSameOrigin(request);
   const session = await requireSession();
   const input = CreateProjectInputSchema.parse(await parseBody(request));
+  assertTargetUrlAllowed(input.baseUrl);
 
   const [project] = await db
     .insert(projects)
@@ -73,3 +75,16 @@ export const POST = route(async (request) => {
 
   return created({ project, ...(provision ? { provision } : {}), ...(provisionError ? { provisionError } : {}) });
 });
+
+/**
+ * A project's base URL is the target a worker will later crawl on the caller's
+ * behalf, so a private or non-HTTP target is rejected at creation time rather
+ * than surfacing as a failed run. Localhost stays reachable in development
+ * because the demo app runs there.
+ */
+function assertTargetUrlAllowed(baseUrl: string): void {
+  const reason = safeUrlError(baseUrl, { allowPrivateTargets: getEnv().ALLOW_PRIVATE_TARGETS });
+  if (reason) {
+    throw new AppError("SSRF", `Base URL rejected: ${reason}`, 400);
+  }
+}

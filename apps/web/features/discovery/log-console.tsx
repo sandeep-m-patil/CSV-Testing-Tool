@@ -51,13 +51,13 @@ export function LogConsole({ logs }: { logs: DiscoveryLogLine[] }) {
       <CardContent className="flex-1 overflow-hidden p-0">
         <div
           ref={ref}
-          className="h-full overflow-auto bg-slate-950 px-4 py-3 font-mono text-xs leading-relaxed text-slate-200"
+          className="h-full overflow-auto bg-black px-4 py-3 font-mono text-xs leading-relaxed text-foreground"
         >
-          {visibleLogs.length === 0 && <p className="text-slate-500">Waiting for logs…</p>}
+          {visibleLogs.length === 0 && <p className="text-muted-foreground">Waiting for logs…</p>}
           {visibleLogs.map((log) => (
             <p key={log.id} className="whitespace-pre-wrap break-words">
               <span className={levelColor(log.level)}>{log.level.toUpperCase().padEnd(6)}</span>{" "}
-              <span className="mr-2 text-slate-500">{new Date(log.createdAt).toLocaleTimeString()}</span>
+              <span className="mr-2 text-muted-foreground">{new Date(log.createdAt).toLocaleTimeString()}</span>
               <LogMessage message={log.message} />
             </p>
           ))}
@@ -86,9 +86,9 @@ function LogMessage({ message }: { message: string }) {
 }
 
 function levelColor(level: string): string {
-  if (level === "error") return "text-red-400";
-  if (level === "warn") return "text-amber-400";
+  if (level === "error") return "text-destructive";
+  if (level === "warn") return "text-warning";
   if (level === "event" || level === "info") return "text-primary";
-  if (level === "action") return "text-emerald-400";
-  return "text-slate-400";
+  if (level === "action") return "text-success";
+  return "text-muted-foreground";
 }

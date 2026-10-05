@@ -8,6 +8,8 @@ interface PageModel {
   url: string;
   name: string;
   pageType: string;
+  /** Purpose recorded by the AI provider during discovery, if any. */
+  aiPurpose: string | null;
 }
 
 interface ExecutedStep {
@@ -35,6 +37,7 @@ export async function buildWorkflows(ctx: DiscoveryContext): Promise<number> {
   const transitions = await ctx.db.select().from(stateTransitions).where(eq(stateTransitions.discoverySessionId, ctx.sessionId));
 
   const pageById = new Map(pages.map((page) => [page.id, page] satisfies [string, PageModel]));
+  const intents = await loadPageIntents(ctx, pages);
 
   const stepsByPage = new Map<string, ExecutedStep[]>();
   for (const action of actions) {
@@ -82,7 +85,9 @@ export async function buildWorkflows(ctx: DiscoveryContext): Promise<number> {
     const workflowId = await ctx.store.insertWorkflowAndSteps(
       {
         name: `Submit ${ctx.moduleName} — ${page.name}`,
-        description: `Filled the ${page.name} form with test data and submitted it during autonomous discovery.`,
+        // Prefer the model's description of what this page is for; it is richer
+        // than "filled the form", and it comes from the same redacted snapshot.
+        description: intents.get(page.id) ?? `Filled the ${page.name} form with test data and submitted it during autonomous discovery.`,
         preconditions: [`login as ${role}`],
         steps: fullSteps,
         source: "discovered",
@@ -100,7 +105,7 @@ export async function buildWorkflows(ctx: DiscoveryContext): Promise<number> {
     const workflowId = await ctx.store.insertWorkflowAndSteps(
       {
         name: `Navigate to ${page.name}`,
-        description: `Reachable page ${page.pageType} at ${page.url}.`,
+        description: intents.get(page.id) ?? `Reachable page ${page.pageType} at ${page.url}.`,
         preconditions: [],
         steps: [
           { order: 1, action: "GOTO", target: page.url },
@@ -115,6 +120,64 @@ export async function buildWorkflows(ctx: DiscoveryContext): Promise<number> {
   }
 
   return created.length;
+}
+
+/** Purpose text the AI recorded per page, if any. Never required. */
+async function loadPageIntents(ctx: DiscoveryContext, pages: PageModel[]): Promise<Map<string, string>> {
+  const intents = new Map<string, string>();
+  for (const page of pages) {
+    if (page.aiPurpose && page.aiPurpose.length > 0) intents.set(page.id, page.aiPurpose);
+  }
+  return intents;
+}
+
+/**
+ * Asks the model to name the user-facing journeys it can see in the discovered
+ * graph. The result is advisory metadata only: it is logged and stored as intent,
+ * and never becomes an executable step, because the model does not know which
+ * locators or values the executor will use.
+ *
+ * Any failure is swallowed. Discovery must not depend on an AI provider.
+ */
+export async function enrichWithAiAnalysis(ctx: DiscoveryContext): Promise<void> {
+  if (ctx.ai.kind === "mock") {
+    await ctx.store.log("info", "AI workflow analysis skipped: no provider configured (heuristic classification used).");
+    return;
+  }
+
+  const [pages, transitions] = await Promise.all([
+    ctx.db
+      .select({ id: discoveredPages.id, name: discoveredPages.name, url: discoveredPages.url, pageType: discoveredPages.pageType })
+      .from(discoveredPages)
+      .where(eq(discoveredPages.discoverySessionId, ctx.sessionId)),
+    ctx.db
+      .select({ label: stateTransitions.label, fromPageId: stateTransitions.fromPageId, toPageId: stateTransitions.toPageId })
+      .from(stateTransitions)
+      .where(eq(stateTransitions.discoverySessionId, ctx.sessionId)),
+  ]);
+  if (pages.length === 0) return;
+
+  const nameById = new Map(pages.map((page) => [page.id, page.name] satisfies [string, string]));
+  try {
+    const analysis = await ctx.ai.analyzeWorkflows({
+      moduleName: ctx.moduleName,
+      pages: pages.map((page) => ({ name: page.name, url: page.url, pageType: page.pageType })),
+      transitions: transitions.map((transition) => ({
+        label: transition.label,
+        from: nameById.get(transition.fromPageId) ?? transition.fromPageId,
+        to: nameById.get(transition.toPageId) ?? transition.toPageId,
+      })),
+    });
+    await ctx.store.log(
+      "info",
+      `AI analysed ${pages.length} page(s) via ${ctx.ai.kind}: ${analysis.workflows.length} candidate journey(s). ${analysis.purpose}`,
+    );
+    for (const workflow of analysis.workflows.slice(0, 20)) {
+      await ctx.store.log("info", `  candidate journey: ${workflow.name} — ${workflow.steps.join(" → ")}`);
+    }
+  } catch (error) {
+    await ctx.store.log("warn", `AI workflow analysis unavailable (${error instanceof Error ? error.message : String(error)}); continuing with heuristic workflows.`);
+  }
 }
 
 function buildFormWorkflow(page: PageModel, steps: ExecutedStep[], ctx: DiscoveryContext): WorkflowStep[] {

@@ -6,3 +6,4 @@ export * from "./page-analyzer";
 export * from "./locator";
 export * from "./redact";
 export * from "./page-model";
+export * from "./route-pattern";

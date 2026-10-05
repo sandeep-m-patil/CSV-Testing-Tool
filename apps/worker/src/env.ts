@@ -27,12 +27,27 @@ const envSchema = z.object({
   STORAGE_LOCAL_DIR: z.string().default("./data/storage"),
   STORAGE_PUBLIC_BASE_URL: z.string().default("http://localhost:3000"),
 
-  AI_PROVIDER: z.enum(["mock", "openai", "local"]).default("mock"),
+  AI_PROVIDER: z.enum(["mock", "openai", "gemini", "grok", "local"]).default("mock"),
   OPENAI_API_KEY: z.string().optional(),
   OPENAI_BASE_URL: z.string().optional(),
   OPENAI_MODEL: z.string().optional(),
+  GEMINI_API_KEY: z.string().optional(),
+  GEMINI_BASE_URL: z.string().optional(),
+  GEMINI_MODEL: z.string().optional(),
+  /** xAI Grok, via its OpenAI-compatible endpoint. */
+  XAI_API_KEY: z.string().optional(),
+  XAI_BASE_URL: z.string().optional(),
+  XAI_MODEL: z.string().optional(),
   LOCAL_AI_BASE_URL: z.string().optional(),
   LOCAL_AI_MODEL: z.string().optional(),
+
+  /**
+   * Optional semantic-target agent. Disabled unless all three are set, so the
+   * locator fallback chain degrades instead of failing without them.
+   */
+  JEV_API_KEY: z.string().optional(),
+  JEV_BASE_URL: z.string().optional(),
+  JEV_TEXT_MODEL: z.string().optional(),
 });
 
 export type WorkerEnv = z.infer<typeof envSchema>;

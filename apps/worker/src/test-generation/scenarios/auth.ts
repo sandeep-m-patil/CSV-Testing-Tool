@@ -42,7 +42,8 @@ interface AuthSpec {
 
 /** The module's stored login, used to make credential-dependent cases real. */
 export interface AuthCredential {
-  username: string;
+  /** Nullable: a login may be keyed on a field other than a username. */
+  username: string | null;
   password: string | null;
 }
 

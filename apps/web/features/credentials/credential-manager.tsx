@@ -77,7 +77,7 @@ function CredentialRowView({ credential, moduleId }: { credential: CredentialRow
       </div>
       <div className="flex items-center gap-2">
         <Badge variant="success" className="gap-1">
-          <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
+          <span className="h-1.5 w-1.5 rounded-full bg-success" />
           {credential.hasSecret ? "secret set" : "no secret"}
         </Badge>
         <Button variant="ghost" size="icon" aria-label={`Delete ${credential.role}`} onClick={() => void remove()}>

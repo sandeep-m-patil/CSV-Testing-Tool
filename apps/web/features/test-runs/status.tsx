@@ -14,10 +14,10 @@ export function passRate(passed: number, total: number): number {
 }
 
 export function StatusIcon({ status }: { status: string }) {
-  if (status === "PASS") return <CheckCircle2 className="h-4 w-4 text-emerald-500" />;
-  if (status === "FAIL") return <XCircle className="h-4 w-4 text-red-500" />;
-  if (status === "BLOCKED") return <MinusCircle className="h-4 w-4 text-slate-500" />;
-  if (status === "SKIP") return <CircleSlash className="h-4 w-4 text-amber-500" />;
+  if (status === "PASS") return <CheckCircle2 className="h-4 w-4 text-success" />;
+  if (status === "FAIL") return <XCircle className="h-4 w-4 text-destructive" />;
+  if (status === "BLOCKED") return <MinusCircle className="h-4 w-4 text-muted-foreground" />;
+  if (status === "SKIP") return <CircleSlash className="h-4 w-4 text-warning" />;
   return <HelpCircle className="h-4 w-4 text-muted-foreground" />;
 }
 

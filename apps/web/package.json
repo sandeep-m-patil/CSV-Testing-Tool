@@ -15,6 +15,7 @@
     "@hookform/resolvers": "^3.10.0",
     "@radix-ui/react-dialog": "^1.1.4",
     "@radix-ui/react-tabs": "^1.1.2",
+    "@repo/ai": "workspace:*",
     "@repo/core": "workspace:*",
     "@repo/db": "workspace:*",
     "@repo/schemas": "workspace:*",

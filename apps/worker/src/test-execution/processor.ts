@@ -132,10 +132,11 @@ async function loadCredentials(
   let credential: RunCredential | undefined;
 
   for (const row of rows) {
-    secrets.push(row.username);
+    if (row.username) secrets.push(row.username);
     try {
       const decrypted = crypto.decryptCredentials(moduleId, row.secretData);
-      if (decrypted?.password) {
+      // A usable run credential needs both halves; `username` may be null.
+      if (decrypted?.password && row.username) {
         secrets.push(decrypted.password);
         credential ??= { username: row.username, password: decrypted.password };
       }

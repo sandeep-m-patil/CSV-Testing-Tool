@@ -9,7 +9,12 @@ export const credentials = pgTable(
       .notNull()
       .references(() => modules.id, { onDelete: "cascade" }),
     role: varchar("role", { length: 120 }).notNull(),
-    username: varchar("username", { length: 255 }).notNull(),
+    /** Nullable: a login may be identified by a field other than a username. */
+    username: varchar("username", { length: 255 }),
+    /** Names of the encrypted fields held in `secretData`, never their values. */
+    fieldKeys: jsonb("field_keys").$type<string[]>().notNull().default([]),
+    /** Which kind of form these credentials authenticate, e.g. `login`. */
+    formType: varchar("form_type", { length: 16 }).notNull().default("login"),
     secretData: text("secret_data").notNull(),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),

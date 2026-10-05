@@ -1,11 +1,13 @@
 import { eq } from "drizzle-orm";
 import { projects } from "@repo/db/schema";
 import { UpdateProjectInputSchema } from "@repo/schemas";
+import { AppError, safeUrlError } from "@repo/core";
 import { ok, parseBody, route, noContent } from "@/lib/api";
 import { assertSameOrigin } from "@/lib/csrf";
 import { requireSession } from "@/lib/auth/get-session";
 import { requireProjectAccess } from "@/lib/auth/guards";
 import { db } from "@/lib/db";
+import { getEnv } from "@/lib/env";
 
 type Params = { params: Promise<Record<string, string>> };
 
@@ -29,6 +31,13 @@ const projectId = routeParams['projectId']!;
   await requireProjectAccess(projectId, session);
 
   const input = UpdateProjectInputSchema.parse(await parseBody(request));
+  if (input.baseUrl) {
+    const reason = safeUrlError(input.baseUrl, { allowPrivateTargets: getEnv().ALLOW_PRIVATE_TARGETS });
+    if (reason) {
+      throw new AppError("SSRF", `Base URL rejected: ${reason}`, 400);
+    }
+  }
+
   const [project] = await db
     .update(projects)
     .set({

@@ -16,9 +16,9 @@ export function RunTotals({ run }: { run: TestRunSummary }) {
   return (
     <div className="grid grid-cols-2 gap-3 sm:grid-cols-5">
       <Stat label="Total" value={run.totalCases} />
-      <Stat label="Passed" value={run.passedCases} tone="text-emerald-600 dark:text-emerald-400" />
-      <Stat label="Failed" value={run.failedCases} tone="text-red-600 dark:text-red-400" />
-      <Stat label="Skipped" value={run.skippedCases} tone="text-amber-600 dark:text-amber-400" />
+      <Stat label="Passed" value={run.passedCases} tone="text-success" />
+      <Stat label="Failed" value={run.failedCases} tone="text-destructive" />
+      <Stat label="Skipped" value={run.skippedCases} tone="text-warning" />
       <Stat label="Pass rate" value={`${runPassRate(run)}%`} />
     </div>
   );
@@ -74,7 +74,7 @@ export function TestResultGrid({ results }: { results: TestRunResultRecord[] }) 
                 <td className="px-3 py-2 font-mono text-xs text-muted-foreground">{row.testData ?? "-"}</td>
                 <td className="px-3 py-2 text-xs text-muted-foreground">{row.expectedResult ?? "-"}</td>
                 <td className="px-3 py-2 text-xs">
-                  {row.error ? <span className="text-red-600 dark:text-red-400">{row.error}</span> : row.actualResult ?? "-"}
+                  {row.error ? <span className="text-destructive">{row.error}</span> : row.actualResult ?? "-"}
                   {row.durationMs !== null && (
                     <span className="ml-1.5 text-muted-foreground">({row.durationMs}ms)</span>
                   )}
