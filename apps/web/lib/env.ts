@@ -35,12 +35,6 @@ const webEnvSchema = z.object({
     .string()
     .default("false")
     .transform((value) => !["0", "false", "no"].includes(value.toLowerCase())),
-
-  // Jev semantic target resolver (optional).
-  JEV_API_KEY: z.string().optional(),
-  JEV_BASE_URL: z.string().optional(),
-  JEV_TEXT_MODEL_API_KEY: z.string().optional(),
-  JEV_TEXT_MODEL: z.string().optional(),
 });
 
 export const webEnv = webEnvSchema.parse(process.env);

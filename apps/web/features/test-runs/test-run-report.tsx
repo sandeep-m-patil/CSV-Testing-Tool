@@ -4,6 +4,8 @@ import { FileJson, Printer } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import type { TestRunResultRecord, TestRunSummary } from "@/features/hooks";
 import { Stat, StatusBadge, StatusIcon, passRate } from "./status";
+import { CaseSteps } from "./case-steps";
+import { RunMeta } from "./test-result-grid";
 
 interface Props {
   run: TestRunSummary;
@@ -36,7 +38,7 @@ export function TestRunReport({ run, module, results, onDownloadJson }: Props) {
         <div>
           <h2 className="text-xl font-semibold">Test run report</h2>
           <p className="text-sm text-muted-foreground">
-            {module?.name ?? "Module"} &middot; run <span className="font-mono text-xs">{run.id}</span>
+            {module?.name ?? "Module"} &middot; <span className="font-mono text-xs">{run.runLabel}</span>
           </p>
         </div>
         <div className="flex gap-2 no-print">
@@ -62,6 +64,8 @@ export function TestRunReport({ run, module, results, onDownloadJson }: Props) {
         <Stat label="Pass rate" value={`${passRate(passed, results.length)}%`} />
         <Stat label="Evidence" value={`${withShot}/${results.length}`} />
       </section>
+
+      <RunMeta run={run} />
 
       <dl className="grid grid-cols-2 gap-x-6 gap-y-1 rounded-xl border bg-card p-4 text-sm sm:grid-cols-4">
         <Meta label="Status" value={run.status} />
@@ -100,6 +104,11 @@ function CaseReportBlock({ row }: { row: TestRunResultRecord }) {
       <header className="flex flex-wrap items-center gap-3 border-b px-4 py-3">
         <StatusIcon status={row.status} />
         <span className="font-mono text-sm font-semibold tracking-tight">{row.code}</span>
+        {row.datasetRow !== null && (
+          <span className="rounded bg-muted px-1.5 py-0.5 font-mono text-[10px] uppercase tracking-wide text-muted-foreground">
+            row {row.datasetRow + 1}
+          </span>
+        )}
         <StatusBadge status={row.status} />
         <span className="text-xs uppercase tracking-wide text-muted-foreground">{row.type.toLowerCase()}</span>
         <span className="text-xs uppercase tracking-wide text-muted-foreground">{row.priority.toLowerCase()}</span>
@@ -108,30 +117,28 @@ function CaseReportBlock({ row }: { row: TestRunResultRecord }) {
         </span>
       </header>
 
-      {row.screenshotUrl && (
-        <a
-          href={row.screenshotUrl}
-          target="_blank"
-          rel="noreferrer"
-          className="print-evidence block border-b bg-muted/30"
-          title="Open full size"
-        >
-          <img src={row.screenshotUrl} alt={`Evidence for ${row.code}`} className="block h-auto w-full" />
-        </a>
-      )}
-
       <div className="space-y-2 px-4 py-3">
         <h3 className="text-base font-semibold leading-snug">{row.name}</h3>
-        <dl className="grid gap-2 text-sm sm:grid-cols-2">
+        <dl className="grid gap-2 text-sm sm:grid-cols-3">
+          <Detail label="Role" value={row.role ?? "default credential"} />
+          <Detail label="Credential" value={row.credentialName ?? "none"} />
+          <Detail label="Attempts" value={String(row.attemptCount)} />
           <Detail label="Test data" value={row.testData} mono />
           <Detail label="Expected" value={row.expectedResult} />
           <Detail label="Actual" value={row.error ?? row.actualResult} tone={row.error ? "error" : undefined} />
-          <Detail
-            label="Evidence"
-            value={row.screenshotUrl ? row.screenshotKey ?? "captured" : "not captured"}
-            tone={row.screenshotUrl ? undefined : "muted"}
-          />
         </dl>
+      </div>
+
+      <div className="border-t px-4 py-3">
+        {row.stepResults.length > 0 ? (
+          <CaseSteps steps={row.stepResults} attempts={row.attempts} onOpenImage={(url) => window.open(url, "_blank", "noreferrer")} />
+        ) : row.screenshotUrl ? (
+          <a href={row.screenshotUrl} target="_blank" rel="noreferrer" className="print-evidence block" title="Open full size">
+            <img src={row.screenshotUrl} alt={`Evidence for ${row.code}`} className="block h-auto w-full rounded border" />
+          </a>
+        ) : (
+          <p className="text-xs text-muted-foreground">No screenshot captured.</p>
+        )}
       </div>
     </article>
   );

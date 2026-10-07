@@ -1,6 +1,15 @@
-import { AiPageInterpretationSchema, AiWorkflowAnalysisSchema, type AiPageContext, type AiPageInterpretation, type AiWorkflowAnalysis } from "@repo/schemas";
+import {
+  AiPageInterpretationSchema,
+  AiWorkflowAnalysisSchema,
+  type AiPageContext,
+  type AiPageInterpretation,
+  type AiTestCaseContext,
+  type AiTestCaseSuggestions,
+  type AiWorkflowAnalysis,
+} from "@repo/schemas";
 import type { AIProvider } from "./types";
 import { sanitizePageContext } from "./sanitize";
+import { buildTestCaseTask, parseTestCaseSuggestions } from "./test-case-task";
 
 export interface OpenAICompatibleOptions {
   label: string;
@@ -93,5 +102,9 @@ export class OpenAICompatibleProvider implements AIProvider {
       output: "name, purpose, workflows[{name, steps[string]}]",
     });
     return AiWorkflowAnalysisSchema.parse(raw);
+  }
+
+  async generateTestCases(context: AiTestCaseContext): Promise<AiTestCaseSuggestions> {
+    return parseTestCaseSuggestions(await chatJson(this.options, buildTestCaseTask(context)));
   }
 }

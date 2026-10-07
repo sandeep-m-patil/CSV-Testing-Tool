@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
-import { normalizeStorageKey } from "@repo/core";
+import { isAppError, normalizeStorageKey } from "@repo/core";
 import { getStorage } from "@/lib/storage";
+import { authorizeStorageKey } from "@/lib/storage-access";
 
 export const runtime = "nodejs";
 
@@ -16,6 +17,7 @@ const CONTENT_TYPES: Record<string, string> = {
   txt: "text/plain; charset=utf-8",
 };
 
+/** Serves run and discovery evidence to signed-in owners of the module it belongs to. */
 export async function GET(_request: Request, { params }: { params: Promise<{ key: string[] }> }) {
   try {
     const { key: keyParts } = await params;
@@ -23,6 +25,7 @@ export async function GET(_request: Request, { params }: { params: Promise<{ key
     if (!key) {
       return new NextResponse("Missing key", { status: 400 });
     }
+    await authorizeStorageKey(key);
 
     const storage = getStorage();
     if (!(await storage.exists(key))) {
@@ -39,7 +42,8 @@ export async function GET(_request: Request, { params }: { params: Promise<{ key
         "X-Content-Type-Options": "nosniff",
       },
     });
-  } catch {
+  } catch (error) {
+    if (isAppError(error)) return new NextResponse(error.message, { status: error.status });
     return new NextResponse("Storage error", { status: 500 });
   }
 }

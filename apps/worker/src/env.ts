@@ -22,6 +22,8 @@ const envSchema = z.object({
   DISCOVERY_PAGE_SLEEP_MS: z.coerce.number().int().min(0).default(350),
 
   WORKER_CONCURRENCY: z.coerce.number().int().min(1).max(8).default(2),
+  /** Files UPLOAD steps may attach, by base name. Missing names get a generated placeholder. */
+  UPLOAD_FIXTURES_DIR: z.string().default("./data/fixtures"),
 
   STORAGE_DRIVER: z.enum(["local", "s3"]).default("local"),
   STORAGE_LOCAL_DIR: z.string().default("./data/storage"),
@@ -42,12 +44,15 @@ const envSchema = z.object({
   LOCAL_AI_MODEL: z.string().optional(),
 
   /**
-   * Optional semantic-target agent. Disabled unless all three are set, so the
-   * locator fallback chain degrades instead of failing without them.
+   * Jev (TypeSafe System One). Optional: without a key, discovery and execution
+   * run exactly as before, and the locator chain fails with a diagnostic
+   * instead of falling through to Jev.
    */
-  JEV_API_KEY: z.string().optional(),
-  JEV_BASE_URL: z.string().optional(),
-  JEV_TEXT_MODEL: z.string().optional(),
+  TYPESAFE_API_KEY: z.string().optional(),
+  JEV_API_URL: z.string().url().optional(),
+  JEV_MODEL: z.string().optional(),
+  /** Ask Jev before clicking submit-like controls during discovery; skip if it looks irreversible. */
+  JEV_GUARD_IRREVERSIBLE: booleanFromString,
 });
 
 export type WorkerEnv = z.infer<typeof envSchema>;

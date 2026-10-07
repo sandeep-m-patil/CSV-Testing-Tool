@@ -270,7 +270,7 @@ export async function safeSnapshot(page: Page, options: PageSnapshotOptions = {}
  * is undefined once the serialized function runs inside the page. Provide it as a
  * global so the injected annotation resolves in the page context.
  */
-async function ensureRuntimeHelpers(page: Page): Promise<void> {
+export async function ensureRuntimeHelpers(page: Page): Promise<void> {
   await page.evaluate(() => {
     const globalObject = globalThis as unknown as Record<string, unknown>;
     if (globalObject.__name === undefined) {

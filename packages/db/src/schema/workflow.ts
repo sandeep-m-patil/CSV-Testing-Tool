@@ -1,6 +1,7 @@
-import { boolean, index, integer, jsonb, pgTable, text, timestamp, uniqueIndex, uuid, varchar } from "drizzle-orm/pg-core";
+import { sql } from "drizzle-orm";
+import { bigint, boolean, index, integer, jsonb, pgTable, text, timestamp, uniqueIndex, uuid, varchar, type AnyPgColumn } from "drizzle-orm/pg-core";
 import { discoverySessions } from "./discovery";
-import { modules } from "./project";
+import { modules, projects } from "./project";
 import { testDataSets } from "./config";
 import { environments } from "./environment";
 
@@ -139,12 +140,28 @@ export const testRuns = pgTable(
     failedCases: integer("failed_cases").notNull().default(0),
     skippedCases: integer("skipped_cases").notNull().default(0),
     error: text("error"),
+    /** Human-readable sequence, shown as RUN-<year>-<number>. */
+    runNumber: bigint("run_number", { mode: "number" }).notNull().default(sql`nextval('test_run_number_seq')`),
+    projectId: uuid("project_id").references(() => projects.id, { onDelete: "cascade" }),
+    browser: varchar("browser", { length: 16 }).notNull().default("chromium"),
+    /** Parallel isolated browser contexts. */
+    workers: integer("workers").notNull().default(1),
+    /** Extra attempts for a FAIL/BLOCKED case; each attempt is kept. */
+    retries: integer("retries").notNull().default(0),
+    failFast: boolean("fail_fast").notNull().default(false),
+    /** `all`, or `failed` for a rerun of `parentRunId`'s failed and blocked results. */
+    scope: varchar("scope", { length: 16 }).notNull().default("all"),
+    parentRunId: uuid("parent_run_id").references((): AnyPgColumn => testRuns.id, { onDelete: "set null" }),
+    blockedCases: integer("blocked_cases").notNull().default(0),
+    durationMs: integer("duration_ms"),
     startedAt: timestamp("started_at", { withTimezone: true }),
     completedAt: timestamp("completed_at", { withTimezone: true }),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => [
     index("test_runs_module_id_idx").on(table.moduleId),
+    index("test_runs_project_id_idx").on(table.projectId),
+    uniqueIndex("test_runs_run_number_idx").on(table.runNumber),
     index("test_runs_status_idx").on(table.status),
     index("test_runs_environment_id_idx").on(table.environmentId),
     index("test_runs_created_at_idx").on(table.createdAt),
@@ -173,6 +190,15 @@ export const testRunResults = pgTable(
     actualResult: text("actual_result"),
     error: text("error"),
     screenshotKey: text("screenshot_key"),
+    /** Every attempt of this case/row: [{ attempt, status, error, durationMs, screenshotKey }]. */
+    attempts: jsonb("attempts").$type<unknown[]>().notNull().default([]),
+    attemptCount: integer("attempt_count").notNull().default(1),
+    /** Per-step outcome of the final attempt, each with its own screenshot. */
+    stepResults: jsonb("step_results").$type<unknown[]>().notNull().default([]),
+    role: varchar("role", { length: 120 }),
+    /** Credential display name, never its secret. */
+    credentialName: varchar("credential_name", { length: 120 }),
+    browser: varchar("browser", { length: 16 }),
     order: integer("order").notNull().default(0),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },

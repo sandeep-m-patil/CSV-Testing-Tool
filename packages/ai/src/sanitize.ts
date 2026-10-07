@@ -45,7 +45,8 @@ function isSecretLike(value: string): boolean {
   return words.some((word) => SECRET_KEYWORDS.includes(word));
 }
 
-function scrub(value: string | undefined): string | undefined {
+/** Truncates a value and withholds it entirely when it looks like a secret. */
+export function scrubValue(value: string | undefined): string | undefined {
   if (value === undefined) return undefined;
   const trimmed = value.slice(0, MAX_FIELD_LENGTH);
   return isSecretLike(trimmed) ? "[redacted]" : trimmed;
@@ -60,14 +61,14 @@ export function sanitizePageContext(context: AiPageContext): AiPageContext {
   const parsed = AiPageContextSchema.parse(context);
   return {
     url: parsed.url,
-    title: scrub(parsed.title) ?? "",
+    title: scrubValue(parsed.title) ?? "",
     ...(parsed.pageType ? { pageType: parsed.pageType } : {}),
     elements: parsed.elements.map((element) => ({
       ...element,
-      label: scrub(element.label),
-      name: scrub(element.name),
-      placeholder: scrub(element.placeholder),
-      text: scrub(element.text),
+      label: scrubValue(element.label),
+      name: scrubValue(element.name),
+      placeholder: scrubValue(element.placeholder),
+      text: scrubValue(element.text),
     })),
   };
 }

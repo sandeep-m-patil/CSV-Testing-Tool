@@ -38,11 +38,13 @@ export function ReportSummary({ data }: { data: ReportSummaryData }) {
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div>
             <CardTitle className="text-lg">Discovery report</CardTitle>
-            <p className="mt-1 text-sm text-muted-foreground">
+            <p className="mt-1 break-all text-sm text-muted-foreground">
               {data.project?.name} &middot; {data.project?.baseUrl} &middot; {data.project?.environment}
             </p>
           </div>
-          <Badge variant={STATUS_VARIANT[data.session.status] ?? "muted"}>{data.session.status}</Badge>
+          <Badge variant={STATUS_VARIANT[data.session.status] ?? "muted"} data-status={data.session.status}>
+            {data.session.status}
+          </Badge>
         </div>
       </CardHeader>
       <CardContent className="space-y-4">
@@ -53,28 +55,28 @@ export function ReportSummary({ data }: { data: ReportSummaryData }) {
           <Field label="Duration" value={duration} />
         </dl>
 
-        <div className="rounded-md border bg-muted/20 p-3 text-sm">
+        <div className="rounded-lg border bg-muted/30 p-3 text-sm">
           <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Module scope</p>
           <p className="mt-1 text-sm">
             {scope.length === 0 ? "Whole site (no start path configured)" : scope.join("  ·  ")}
           </p>
         </div>
 
-        <div className="grid grid-cols-2 gap-3 sm:grid-cols-5">
+        <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
           {data.counts.map((count) => (
-            <div key={count.label} className="rounded-md border p-3">
+            <div key={count.label} className="rounded-lg border bg-muted/30 p-3">
               <p className="text-2xl font-semibold tabular-nums">{count.value}</p>
               <p className="text-xs text-muted-foreground">{count.label}</p>
             </div>
           ))}
-          <div className="rounded-md border p-3">
+          <div className="rounded-lg border bg-muted/30 p-3">
             <p className="text-2xl font-semibold tabular-nums">{data.workflowsCount}</p>
             <p className="text-xs text-muted-foreground">Workflows</p>
           </div>
         </div>
 
         {data.session.error ? (
-          <p className="rounded-md border border-destructive/40 bg-destructive/5 p-3 text-sm text-destructive">
+          <p className="rounded-lg border border-destructive/40 bg-destructive/10 p-3 text-sm text-destructive">
             Run error: {data.session.error}
           </p>
         ) : null}

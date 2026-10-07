@@ -3,6 +3,10 @@ import { z } from "zod";
 export const ModuleStatusSchema = z.enum(["NOT_DISCOVERED", "DISCOVERING", "DISCOVERED", "FAILED"]);
 export type ModuleStatus = z.infer<typeof ModuleStatusSchema>;
 
+/** Lifecycle, separate from discovery status: a DISABLED module is skipped by Discover All and Run All. */
+export const ModuleLifecycleSchema = z.enum(["ACTIVE", "DISABLED"]);
+export type ModuleLifecycle = z.infer<typeof ModuleLifecycleSchema>;
+
 /** Paths must be origin-relative ("/materials") or bare segments ("materials"). */
 export const ModulePathSchema = z
   .string()
@@ -22,8 +26,9 @@ export const ModuleSchema = z.object({
   description: z.string().max(1000).nullable(),
   startPath: z.string().nullable(),
   includePaths: z.array(z.string()),
-  status: ModuleStatusSchema,
+  status: ModuleLifecycleSchema,
   discoveryStatus: ModuleStatusSchema,
+  requireApproval: z.boolean(),
   createdAt: z.string().datetime(),
   updatedAt: z.string().datetime(),
 });
@@ -43,12 +48,14 @@ export const UpdateModuleInputSchema = z.object({
   description: z.string().trim().max(1000).optional(),
   startPath: ModulePathSchema.nullable().optional(),
   includePaths: ModulePathListSchema.optional(),
+  status: ModuleLifecycleSchema.optional(),
+  requireApproval: z.boolean().optional(),
 });
 export type UpdateModuleInput = z.infer<typeof UpdateModuleInputSchema>;
 
 export const ModuleWithRelationsSchema = ModuleSchema.extend({
   project: z.object({ name: z.string(), baseUrl: z.string(), environment: z.string() }),
-  credentials: z.array(z.object({ id: z.string().uuid(), role: z.string(), username: z.string() })),
+  credentials: z.array(z.object({ id: z.string().uuid(), name: z.string(), role: z.string(), username: z.string().nullable() })),
   testDataSets: z.array(z.object({ id: z.string().uuid(), name: z.string(), dataType: z.string() })),
 });
 export type ModuleWithRelations = z.infer<typeof ModuleWithRelationsSchema>;

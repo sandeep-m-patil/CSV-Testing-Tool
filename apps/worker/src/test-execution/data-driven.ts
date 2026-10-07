@@ -27,11 +27,14 @@ export interface DataDrivenCase {
   datasetRow: number | null;
   /** Row values available to `{{column}}` substitution. */
   values: KeyValueRow;
+  /** Application role the case is written for; selects the credential it runs as. */
+  role: string | null;
 }
 
 export interface CaseDraft {
   id: string;
   name: string;
+  role?: string | null;
   steps: ExecutableStep[];
   testData: string | null;
   expectedResult: string | null;
@@ -90,7 +93,13 @@ function toCase(draft: CaseDraft, datasetId: string | null, datasetRow: number |
     datasetId,
     datasetRow,
     values,
+    role: draft.role ?? null,
   };
+}
+
+/** Substitutes `{{name}}` tokens in every step, e.g. a credential's non-secret variables. */
+export function applyValues(steps: ExecutableStep[], values: KeyValueRow): ExecutableStep[] {
+  return Object.keys(values).length === 0 ? steps : steps.map((step) => substituteStep(step, values));
 }
 
 function substituteStep(step: ExecutableStep, values: KeyValueRow): ExecutableStep {

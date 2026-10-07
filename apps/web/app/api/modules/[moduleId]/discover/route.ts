@@ -24,6 +24,9 @@ export const POST = route(async (request, context: Params) => {
   if (!module) {
     throw new AppError("NOT_FOUND", "Module not found", 404);
   }
+  if (module.status === "DISABLED") {
+    throw new AppError("MODULE_DISABLED", "This module is disabled; enable it before it can be discovered", 409);
+  }
 
   const discoverySessionId = await enqueueDiscovery({
     moduleId,

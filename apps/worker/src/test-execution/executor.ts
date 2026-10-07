@@ -1,10 +1,12 @@
 import type { Browser, Page } from "playwright";
-import type { StorageProvider } from "@repo/core";
-import { maskSensitiveInputs, unmaskSensitiveInputs } from "@repo/browser";
+import type { StepResult } from "@repo/schemas";
 import type { ExecutableStep, Expectation, ResultStatus } from "./types";
-import { waitForLocator } from "./locators";
 import { evaluateExpectation } from "./assertions";
-import { slugify } from "./naming";
+import { describeExpectation } from "./describe-expectation";
+import { captureScreenshot, displayValue, evidenceKey, type EvidenceTarget } from "./run-evidence";
+import { firstLine, isBlockingError, NAVIGATION_TIMEOUT_MS, runStepWithRecovery, type RunCredential, type StepContext } from "./step-runner";
+import type { SemanticResolver } from "./semantic-target";
+import type { StorageState } from "./session-bootstrap";
 
 export interface ExecutableCase {
   id: string;
@@ -12,186 +14,108 @@ export interface ExecutableCase {
   steps: ExecutableStep[];
   testData: string | null;
   expectedResult: string | null;
+  /** Row index within the linked CSV dataset, or null for a non-data-driven case. */
+  datasetRow?: number | null;
+  /** Signed-in browser storage for the case's role; null runs signed out. */
+  storageState?: StorageState | null;
 }
 
-export interface CaseOutcome {
-  testCaseId: string;
+export interface RunContext extends EvidenceTarget {
+  browser: Browser;
+  /** Substituted into generated steps so stored steps never contain a secret. */
+  credential?: RunCredential;
+  /** Jev fallback for targets the portable hint no longer finds; null disables it. */
+  resolver?: SemanticResolver | null;
+  uploadDir: string;
+}
+
+/** One execution of one case (or CSV row). Retries produce several of these. */
+export interface AttemptOutcome {
   status: ResultStatus;
   durationMs: number;
   actualResult: string;
   error: string | null;
   screenshotKey: string | null;
+  steps: StepResult[];
 }
 
-export interface RunCredential {
-  username: string;
-  password: string | null;
-}
-
-export interface RunContext {
-  browser: Browser;
-  storage: StorageProvider;
-  moduleId: string;
-  runId: string;
-  secrets: string[];
-  /** Substituted into generated steps so stored steps never contain a secret. */
-  credential?: RunCredential;
-  timeoutMs: number;
-  /** Surfaces non-fatal capture problems; evidence failures must never be silent. */
-  log?: (message: string) => void;
-}
-
-const USERNAME_TOKEN = "{{username}}";
-const PASSWORD_TOKEN = "{{password}}";
-
-/**
- * Replaces credential tokens in a step value. Generated cases store
- * `{{username}}`/`{{password}}` instead of the real secret, so tokens are
- * resolved here, at run time, from the module's decrypted credential. A case
- * that still holds a token after substitution means no credential was stored,
- * which must fail loudly rather than typing a literal `{{password}}`.
- */
-function resolveValue(raw: string | null | undefined, credential?: RunCredential): string {
-  const value = raw ?? "";
-  if (!value.includes(USERNAME_TOKEN) && !value.includes(PASSWORD_TOKEN)) return value;
-
-  const username = credential?.username;
-  const password = credential?.password;
-  if (!username || !password) {
-    throw new Error(
-      "Test case needs a stored credential but the module has none. Add one in Credentials & Data, then re-generate.",
-    );
-  }
-  return value.split(USERNAME_TOKEN).join(username).split(PASSWORD_TOKEN).join(password);
-}
-
-const NAVIGATION_TIMEOUT_MS = 20000;
-const SETTLE_TIMEOUT_MS = 750;
 /**
  * How long an expectation is retried before it is declared unmet. A real login
- * POST plus client redirect can take ~2s, so sampling the expectation once at
- * the end of the step sequence reports a false failure on a slow-but-correct app.
+ * POST plus client redirect can take ~2s, so a single sample would report a
+ * false failure on a slow-but-correct app.
  */
-const EXPECTATION_POLL_MS = 10000;
+const EXPECTATION_POLL_MS = 10_000;
 const EXPECTATION_POLL_INTERVAL_MS = 250;
-/**
- * Window a "must not navigate" expectation is observed over. Kept short so a
- * suite full of negative cases stays quick, but longer than a real redirect
- * (~2s observed) so a late navigation is not mistaken for success.
- */
-const NEGATIVE_SETTLE_MS = 3000;
+/** Observation window for "must not navigate": longer than a real redirect (~2s). */
+const NEGATIVE_SETTLE_MS = 3_000;
 
-/** Executes one test case in an isolated page so state cannot leak between cases. */
-export async function executeCase(ctx: RunContext, testCase: ExecutableCase, order: number): Promise<CaseOutcome> {
+/** Executes one attempt in an isolated browser context so state cannot leak between cases. */
+export async function executeAttempt(ctx: RunContext, testCase: ExecutableCase, attempt: number): Promise<AttemptOutcome> {
   const startedAt = Date.now();
-  const context = await ctx.browser.newContext({ ignoreHTTPSErrors: true });
+  const context = await ctx.browser.newContext({ ignoreHTTPSErrors: true, ...(testCase.storageState ? { storageState: testCase.storageState } : {}) });
   const page = await context.newPage();
   page.setDefaultTimeout(NAVIGATION_TIMEOUT_MS);
+  const recorder = new StepRecorder(ctx, page, { caseName: testCase.name, datasetRow: testCase.datasetRow, attempt });
 
   try {
-    for (const step of testCase.steps) {
-      if (step.stepType === "verify") continue;
-      await performStep(page, step, ctx.credential);
-    }
-    const finalStep = lastVerifyStep(testCase.steps);
-    if (!finalStep?.expect) {
-      // `return await` is required: a bare `return promise` lets the `finally`
-      // block close the context before the screenshot in finish() settles.
-      return await finish(ctx, page, testCase, startedAt, order, {
-        status: "SKIP",
-        actual: "No machine-checkable expectation; requires manual verification",
-      });
-    }
-    const outcome = await awaitExpectation(page, finalStep.expect);
-    return await finish(ctx, page, testCase, startedAt, order, {
-      status: outcome.isSatisfied ? "PASS" : "FAIL",
-      actual: outcome.detail,
-      // A failure must carry its reason, otherwise the report shows a red row
-      // with no explanation of which expectation was not met.
-      error: outcome.isSatisfied
-        ? undefined
-        : `Expectation not met: expected ${describeExpectation(finalStep.expect)}; observed ${outcome.detail}`,
-    });
-  } catch (error) {
-    return await finish(ctx, page, testCase, startedAt, order, {
-      status: "FAIL",
-      actual: "Execution error",
-      error: error instanceof Error ? error.message : String(error),
-    });
+    const failure = await runActionSteps(page, testCase.steps, ctx, recorder);
+    if (failure) return recorder.outcome(startedAt, failure);
+    return await verify(page, testCase.steps, recorder, startedAt);
   } finally {
     await context.close().catch(() => undefined);
   }
 }
 
-async function performStep(page: Page, step: ExecutableStep, credential?: RunCredential): Promise<void> {
-  switch (step.action) {
-    case "GOTO":
-      await page.goto(step.target, { waitUntil: "domcontentloaded", timeout: NAVIGATION_TIMEOUT_MS });
-      return;
-    case "FILL": {
-      const locator = await waitForLocator(page, step.target);
-      await locator.fill(resolveValue(step.value, credential));
-      return;
-    }
-    case "PRESS": {
-      const locator = await waitForLocator(page, step.target);
-      await locator.press(resolveValue(step.value, credential) || "Enter");
-      await page.waitForLoadState("domcontentloaded").catch(() => undefined);
-      await page.waitForTimeout(SETTLE_TIMEOUT_MS);
-      return;
-    }
-    case "CLICK": {
-      const locator = await waitForLocator(page, step.target);
-      await locator.click();
-      return;
-    }
-    case "SUBMIT": {
-      const locator = await waitForLocator(page, step.target);
-      await locator.click();
-      await page.waitForLoadState("domcontentloaded").catch(() => undefined);
-      await page.waitForTimeout(SETTLE_TIMEOUT_MS);
-      return;
-    }
-    case "SELECT":
-    case "CHECK":
-    case "UNCHECK": {
-      const locator = await waitForLocator(page, step.target);
-      await locator.click();
-      return;
-    }
-    default:
-      return;
-  }
+interface Verdict {
+  status: ResultStatus;
+  actual: string;
+  error: string | null;
 }
 
-function lastVerifyStep(steps: ExecutableStep[]): ExecutableStep | undefined {
-  return [...steps].reverse().find((step) => step.stepType === "verify");
+/** Runs action steps in order; the first step that cannot complete ends the attempt. */
+async function runActionSteps(page: Page, steps: ExecutableStep[], ctx: RunContext, recorder: StepRecorder): Promise<Verdict | null> {
+  const stepContext: StepContext = { resolver: ctx.resolver ?? null, credential: ctx.credential, uploadDir: ctx.uploadDir };
+  for (const step of steps) {
+    if (step.stepType === "verify") continue;
+    const started = Date.now();
+    try {
+      const resolvedBy = await runStepWithRecovery(page, step, stepContext);
+      await recorder.record(step, { status: "PASS", started, resolvedBy });
+    } catch (error) {
+      const status: ResultStatus = isBlockingError(error) ? "BLOCKED" : "FAIL";
+      const message = `Step ${step.order} (${step.action} ${step.target}): ${firstLine(error)}`;
+      await recorder.record(step, { status, started, error: firstLine(error) });
+      return { status, actual: status === "BLOCKED" ? "Step could not be executed" : "Execution error", error: message };
+    }
+  }
+  return null;
+}
+
+async function verify(page: Page, steps: ExecutableStep[], recorder: StepRecorder, startedAt: number): Promise<AttemptOutcome> {
+  const finalStep = [...steps].reverse().find((step) => step.stepType === "verify");
+  if (!finalStep?.expect) {
+    await recorder.snapshot("final");
+    return recorder.outcome(startedAt, { status: "SKIP", actual: "No machine-checkable expectation; requires manual verification", error: null });
+  }
+  const started = Date.now();
+  const outcome = await awaitExpectation(page, finalStep.expect);
+  const status: ResultStatus = outcome.isSatisfied ? "PASS" : "FAIL";
+  const error = outcome.isSatisfied ? null : `Expectation not met: expected ${describeExpectation(finalStep.expect)}; observed ${outcome.detail}`;
+  await recorder.record(finalStep, { status, started, error: error ?? undefined });
+  return recorder.outcome(startedAt, { status, actual: outcome.detail, error });
 }
 
 /**
- * Retries the expectation until it holds or the budget runs out.
- *
- * A single sample is not a fair test of an asynchronous UI: a submit that
- * redirects in ~2s reads as "still on the login page" if checked at 750ms, which
- * reports a false failure against a correct app. Polling fixes that for
- * expectations that become true over time.
- *
- * The exception is `stayed_on_page`, which is *expected* to hold immediately.
- * Polling it would return success on the first sample and then never re-check,
- * so a late redirect would be recorded as a pass. It is instead re-checked after
- * a full settle window, and only counts as a pass if the page is still there.
+ * Retries the expectation until it holds or the budget runs out. The exception
+ * is `stayed_on_page`, which would pass on its first sample; it is re-checked
+ * after a full settle window instead, so a late redirect is not missed.
  */
-async function awaitExpectation(
-  page: Page,
-  expect: Expectation,
-  budgetMs: number = EXPECTATION_POLL_MS,
-): Promise<{ isSatisfied: boolean; detail: string }> {
+async function awaitExpectation(page: Page, expect: Expectation): Promise<{ isSatisfied: boolean; detail: string }> {
   if (expect.kind === "stayed_on_page") {
     await page.waitForTimeout(NEGATIVE_SETTLE_MS);
     return evaluateExpectation(page, expect);
   }
-
-  const deadline = Date.now() + budgetMs;
+  const deadline = Date.now() + EXPECTATION_POLL_MS;
   let last = await evaluateExpectation(page, expect);
   while (!last.isSatisfied && Date.now() < deadline) {
     await page.waitForTimeout(EXPECTATION_POLL_INTERVAL_MS);
@@ -200,63 +124,48 @@ async function awaitExpectation(
   return last;
 }
 
-interface FinishInput {
-  status: ResultStatus;
-  actual: string;
-  error?: string;
-}
+/** Collects per-step results, each with its own screenshot. */
+class StepRecorder {
+  readonly steps: StepResult[] = [];
+  private lastScreenshot: string | null = null;
 
-async function finish(
-  ctx: RunContext,
-  page: Page,
-  testCase: ExecutableCase,
-  startedAt: number,
-  order: number,
-  input: FinishInput,
-): Promise<CaseOutcome> {
-  void order;
-  const screenshotKey = await captureRunEvidence(ctx, page, testCase);
-  return {
-    testCaseId: testCase.id,
-    status: input.status,
-    durationMs: Date.now() - startedAt,
-    actualResult: input.actual,
-    error: input.error ?? null,
-    screenshotKey,
-  };
-}
+  constructor(
+    private readonly ctx: RunContext,
+    private readonly page: Page,
+    private readonly subject: { caseName: string; datasetRow?: number | null; attempt: number },
+  ) {}
 
-async function captureRunEvidence(ctx: RunContext, page: Page, testCase: ExecutableCase): Promise<string | null> {
-  try {
-    await maskSensitiveInputs(page, ctx.secrets);
-    const buffer = await page.screenshot({ type: "png", fullPage: false, scale: "css", animations: "disabled" });
-    await unmaskSensitiveInputs(page);
-    const key = `modules/${ctx.moduleId}/runs/${ctx.runId}/${slugify(testCase.name)}.png`;
-    await ctx.storage.put(key, Buffer.from(buffer), "image/png");
-    return key;
-  } catch (error) {
-    // Never swallow this silently: a missing screenshot is invisible evidence loss,
-    // and an empty catch here previously hid a 100% failure rate.
-    ctx.log?.(`evidence capture failed for "${testCase.name}": ${error instanceof Error ? error.message : String(error)}`);
-    return null;
+  async snapshot(label: string): Promise<string | null> {
+    this.lastScreenshot = await captureScreenshot(this.ctx, this.page, evidenceKey(this.ctx, this.subject, label));
+    return this.lastScreenshot;
+  }
+
+  async record(step: ExecutableStep, input: { status: ResultStatus; started: number; resolvedBy?: "locator" | "jev"; error?: string }): Promise<void> {
+    const screenshotKey = await this.snapshot(`s${step.order}`);
+    this.steps.push({
+      order: step.order,
+      action: step.action,
+      target: step.target,
+      value: displayValue(step.value, this.ctx.secrets),
+      status: input.status,
+      durationMs: Date.now() - input.started,
+      ...(input.error ? { error: input.error } : {}),
+      screenshotKey,
+      ...(input.resolvedBy ? { resolvedBy: input.resolvedBy } : {}),
+    });
+  }
+
+  outcome(startedAt: number, verdict: Verdict): AttemptOutcome {
+    return {
+      status: verdict.status,
+      durationMs: Date.now() - startedAt,
+      actualResult: verdict.actual,
+      error: verdict.error,
+      screenshotKey: this.lastScreenshot,
+      steps: this.steps,
+    };
   }
 }
 
 export { NAVIGATION_TIMEOUT_MS };
-export type { Expectation };
-
-/** Human-readable form of an expectation, used in failure messages. */
-function describeExpectation(expectation: Expectation): string {
-  switch (expectation.kind) {
-    case "navigated_away":
-      return `navigation away from ${expectation.fromUrl}`;
-    case "stayed_on_page":
-      return `to remain on ${expectation.fromUrl}`;
-    case "error_message_present":
-      return "an error message to be shown";
-    case "any_of":
-      return `one of [${expectation.options.map(describeExpectation).join(" | ")}]`;
-    default:
-      return "an unrecognised expectation";
-  }
-}
+export type { Expectation, RunCredential };

@@ -5,6 +5,7 @@ import { apiFetch } from "@/lib/api-client";
 import { queryKeys } from "@/lib/query-keys";
 import type { Project } from "@repo/schemas";
 import type { Module } from "@repo/schemas";
+import type { AttemptView, StepView } from "@/lib/test-run-view";
 
 export type ProjectRow = Project;
 
@@ -199,10 +200,24 @@ export interface TestRunSummary {
   id: string;
   moduleId: string;
   status: string;
+  /** RUN-<year>-<number>. */
+  runLabel: string;
+  runNumber: number;
   totalCases: number;
   passedCases: number;
   failedCases: number;
   skippedCases: number;
+  blockedCases: number;
+  browser: string;
+  workers: number;
+  retries: number;
+  failFast: boolean;
+  scope: string;
+  environmentId: string | null;
+  baseUrl: string | null;
+  parentRunId: string | null;
+  parentRunLabel?: string | null;
+  durationMs: number | null;
   error: string | null;
   triggeredBy: string | null;
   startedAt: string | null;
@@ -239,11 +254,23 @@ export interface TestRunResultRecord {
   screenshotKey: string | null;
   screenshotUrl: string | null;
   order: number;
+  /** Set when this result came from one row of a CSV dataset bound to the case. */
+  datasetId: string | null;
+  datasetRow: number | null;
   code: string;
   name: string;
   type: string;
   priority: string;
+  role: string | null;
+  /** Display name of the credential the case ran as; never its secret. */
+  credentialName: string | null;
+  browser: string | null;
+  attemptCount: number;
+  attempts: AttemptView[];
+  stepResults: StepView[];
 }
+
+export type { AttemptView, StepView } from "@/lib/test-run-view";
 
 export interface TestRunDetail {
   testRun: TestRunSummary;
@@ -302,6 +329,7 @@ export interface ModuleReport {
 
   export interface ModuleReportRun {
     id: string;
+    runLabel: string;
     status: string;
     startedAt: string | null;
     completedAt: string | null;

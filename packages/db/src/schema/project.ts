@@ -43,6 +43,8 @@ export const modules = pgTable(
     includePaths: jsonb("include_paths").$type<string[]>().notNull().default(sql`'[]'::jsonb`),
     status: varchar("status", { length: 24 }).notNull().default("ACTIVE"),
     discoveryStatus: varchar("discovery_status", { length: 24 }).notNull().default("NOT_DISCOVERED"),
+    /** When true, only APPROVED/READY cases run; otherwise everything except REJECTED. */
+    requireApproval: boolean("require_approval").notNull().default(false),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },

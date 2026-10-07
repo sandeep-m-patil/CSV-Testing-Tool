@@ -45,9 +45,12 @@ Pages: `/app/projects`, `/app/projects/[projectId]`.
   AES-256-GCM via `CredentialCrypto`; the API returns a `hasSecret` flag, never
   the secret. **Module-scoped, not project-scoped** — the project-level
   migration is approved but not done (`requirements.md` §3.9).
-- **Test data** — key/value constants and CSV templates scoped to the module,
-  used to fill forms during discovery. CSV dataset creation is **broken from the
-  UI** (HTTP 400 schema mismatch).
+- **Test data** — CSV templates and key/value constants scoped to the module,
+  used to fill forms during discovery. **CSV saves work** (server-side RFC 4180
+  parse, header-only rejected with 400). Still broken: `KEY_VALUE` saves fail
+  validation (client sends an object, schema expects a string), dataset `DELETE`
+  removes **every** dataset in the module (two chained `.where()` calls — drizzle
+  replaces rather than ANDs), and no API/UI can bind a dataset to a test case.
 - Helpers: `CredentialManager`, `TestDataManager`.
 
 ### Discovery control room
@@ -91,9 +94,16 @@ Pages: `/app/projects`, `/app/projects/[projectId]`.
   `dangerous` / `blocked` patterns.
 - **Hard scope guard** — navigation outside the module is skipped, not recorded.
   Redirects to login are excepted.
-- **Deterministic.** All heuristics are unconditional. The `AIProvider` is
-  constructed at `runner.ts:107` and only `.label` is read; `interpretPage` and
-  `analyzeWorkflows` have **zero call sites**.
+- **Deterministic core, optional AI enrichment.** All heuristics run
+  unconditionally, but the provider is now **invoked** (advisory, off at the
+  default `AI_PROVIDER=mock`): `interpretPageWithFallback` per page (15s
+  timeout, heuristic fallback) persists `ai_page_type/ai_purpose/ai_source`;
+  `enrichWithAiAnalysis` logs workflow analysis without applying it; and
+  `createAiCaseGenerator` may add `source = "ai"` cases beyond the deterministic
+  matrix. Nothing the model says ever becomes a locator or a PASS/FAIL opinion.
+- **Jev login assist** — with `TYPESAFE_API_KEY`, Jev recognises and completes
+  unfamiliar login forms and guards irreversible actions (see `requirements.md`
+  §13).
 - **Write-ahead persistence** — every page/action/log is durable immediately, so
   the UI can stream live and a worker crash does not lose the session.
 - **Budget enforcement** — max pages, steps, actions/page, depth, timeout, sleep,
@@ -125,6 +135,11 @@ Pages: `/app/projects`, `/app/projects/[projectId]`.
   throws rather than being typed into a field.
 - **Resilient** — a case that throws is recorded `FAIL` with its error; the run
   continues.
+- **Data-driven** — a case bound to a CSV dataset runs once per row:
+  `{{column}}` substitution, `dataset_id` / `dataset_row` on each result, per-row
+  screenshot keys (`-row-N`), and a `row N` badge in the grid + report. Binding a
+  case to a dataset is **SQL-only today** (no API field, no UI); a missing or
+  empty dataset logs a warning and the case runs once unchanged.
 - **Not implemented** — retries (`TEST_RUN_ATTEMPTS = 1`, hardcoded), parallel
   workers (`TEST_RUN_CONCURRENCY = 1`, serial), rerun-failed, per-case
   selection, a separate `test_executions` entity, and any environment guard.
@@ -139,7 +154,11 @@ Pages: `/app/projects`, `/app/projects/[projectId]`.
 - Screenshots inline in the results grid, thumbnails + lightbox, full-size in the
   report.
 - **Print / Save-as-PDF** — A4 CSS, verified to render embedded images.
-- JSON export of test-run data.
+- JSON export of test-run data, plus multi-format export
+  `GET /api/modules/[id]/report/export?format=json|html|csv|junit` (up to 50
+  runs; CSV/JUnit flatten to one row per test case). The export API is currently
+  **UI-less** — no page links to it; the report's "Download JSON" button
+  serialises the open run client-side instead.
 - Live status polling at 2s, `?run=<id>` URL sync, back/forward safe.
 - Delete a test run: cascade + evidence cleanup, session/CSRF checked.
 - Sticky-header results grid, 25/50/100/200/All.
@@ -153,24 +172,25 @@ Pages: `/app/projects`, `/app/projects/[projectId]`.
 
 Ordered by priority in `requirements.md` §15.
 
-1. **Fix CSV dataset creation** (HTTP 400 schema mismatch).
-2. **Wire CSV into the executor** — `TC_ID` matching, one execution + result per
-   row. The RFC 4180 parser in `apps/web/lib/test-cases/csv.ts` exists but has
-   **zero importers**; the DSL it implements is not a live format.
-3. **Approve/reject UI + executor status gate.**
-4. **Project-scoped credentials** + `module_credentials` join table.
-5. **Artifacts table + video / trace / console capture.**
-6. **Retries, attempt history, Rerun Failed, parallel workers.**
-7. **Gemini provider** behind the existing `AIProvider` seam, with output
-   validation and redaction.
-8. **Jev bridge** via `@tontoko/jev-browser`, with page-text redaction.
-9. **Incremental discovery** and change diffing.
-10. **Authenticate `/storage/[...key]`.**
-11. **Fix the project detail page** `.length` crash.
-12. **Automated tests** — one test file exists in the repo; `pnpm -r test` exits 1.
+1. **Dataset binding + save/delete fixes** — no API/UI sets `test_cases.dataset_id`
+   (SQL-only), `KEY_VALUE` saves fail validation, and dataset `DELETE` removes
+   every dataset in the module.
+2. **Approve/reject UI + executor status gate.**
+3. **Project-scoped credentials** + `module_credentials` join table.
+4. **Artifacts table + video / trace / console capture.**
+5. **Retries, attempt history, Rerun Failed, parallel workers.**
+6. **Wire the coverage + findings engines** into the run processor (engine and
+   grouping are unit-tested, never called; `environments` is likewise unread).
+7. **Surfaces in the UI** — the AI application-model endpoint and the report
+   export API exist but have no buttons.
+8. **Incremental discovery** and change diffing.
+9. **Authenticate `/storage/[...key]`.**
+10. **Root test script** — `pnpm -r test` still exits 1 because `@repo/db`
+    declares `vitest run` with zero test files (the other 172 tests all pass).
 
 ### Environment-dependent, not on the critical path
 
 - S3 evidence verification, once a Neon S3 bucket exists.
-- Gemini and Jev both need paid API keys (`GEMINI_API_KEY`;
-  `TYPESAFE_API_KEY` plus a text-model key).
+- Live verification of the AI/Jev providers: Gemini (`GEMINI_API_KEY`), Grok
+  (`XAI_API_KEY`) and Jev (`TYPESAFE_API_KEY`) are wired and unit-tested, but no
+  live call has been made from this environment.

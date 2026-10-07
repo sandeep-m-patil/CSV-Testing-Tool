@@ -46,7 +46,7 @@ component is planned but absent, it says so. See
 | Encryption | Node `crypto` AES-256-GCM | Credential secrets at rest |
 | Object storage | Local filesystem or S3-compatible | `forcePathStyle` for Neon S3; served via `/storage/*` |
 | Logging | Pino 9 | `createChildLogger`, secret-free |
-| Testing | Vitest 2.1 | **1 test file in the repo** |
+| Testing | Vitest 2.1 | **19 test files / 172 tests, all green** (`core` 22, `schemas` 15, `demo-app` 4, `browser` 21, `ai` 25, `web` 10, `worker` 75). Root `pnpm -r test` exits 1 only because `@repo/db` has zero test files. |
 | Linting | ESLint 9 flat config | |
 | Infra | Docker Compose | Redis; Dockerfiles for web/worker/demo |
 
@@ -57,85 +57,94 @@ repository today**:
 
 | Component | State | Note |
 | --- | --- | --- |
-| Gemini SDK (`@google/genai`) | **Absent** | No Gemini/Google AI package, no `GEMINI_API_KEY`. |
-| Jev (`jev-ultrafast` / `@tontoko/jev-browser`) | **Absent** | No Jev package, no TYPESAFE/TypeSafe key. |
-| `csv-parse` / `papaparse` | **Absent** | Hand-rolled RFC 4180 in `apps/web/lib/test-cases/csv.ts`, and unreachable. |
+| Gemini SDK (`@google/genai`) | **Absent** | No Google SDK dependency — Gemini is **hand-rolled REST** (`packages/ai/src/gemini.ts`), gated by `GEMINI_API_KEY`. Live calls untested. |
+| Jev (TypeSafe System One) | **Present** | `packages/ai/src/jev.ts` + `apps/worker/src/jev/`; enabled by `TYPESAFE_API_KEY`; wired in discovery and execution. Live calls untested. |
+| `csv-parse` / `papaparse` | **Absent** | Server-side RFC 4180 parsing lives in `packages/schemas/src/test-data.ts`; the legacy client parser (`apps/web/lib/test-cases/csv.ts`) is unreachable. |
 
 ---
 
 ## AI and agent integration status
 
-This section exists because earlier versions of these docs overstated what the
-AI layer does. It is the most misunderstood part of the codebase.
+This section exists because earlier versions of these docs both overstated what
+the AI layer does *and* then understated it once it was wired. What follows is
+the verified state.
 
-### `@repo/ai` — the seam exists and is unused
+### `@repo/ai` — wired, advisory, off by default
 
-`packages/ai` provides a real `AIProvider` interface, a factory, a deterministic
-`MockProvider`, and an OpenAI-compatible adapter built on raw `fetch` (no SDK
-dependency). The interface methods are `interpretPage()` and `analyzeWorkflows()`.
+`packages/ai` provides the `AIProvider` interface (`interpretPage`,
+`analyzeWorkflows`, `generateTestCases`), a factory, and five kinds selected by
+`AI_PROVIDER`:
 
-**Neither method has a single call site.** The provider is constructed at
-`apps/worker/src/discovery/runner.ts:107` and the only property ever read is
-`.label`, in a log string. Every heuristic in the discovery pipeline is
-deterministic and unconditional.
+| Kind | Env gate | Transport |
+| --- | --- | --- |
+| `mock` (default) | none | In-process regex heuristics, no network. Every AI call site short-circuits here. |
+| `openai` | `OPENAI_API_KEY` | Raw `fetch` → `chat/completions` (`gpt-4o-mini`) |
+| `gemini` | `GEMINI_API_KEY` | Raw `fetch` → `generateContent`, `responseMimeType: json` (`gemini-2.5-flash`) |
+| `grok` | `XAI_API_KEY` | OpenAI-compatible → `https://api.x.ai/v1` (`grok-4.6`) |
+| `local` | `LOCAL_AI_BASE_URL` | OpenAI-compatible, no key (e.g. Ollama) |
+
+All outbound contexts pass through `packages/ai/src/sanitize.ts`, which redacts
+credential-shaped values (emails, tokens, SSN-like numbers, `key=secret` pairs)
+— applied inside every provider as well as at the worker and web boundaries, so
+§12.8 of requirements is enforced, not vacuous.
+
+**Three wiring points, all advisory** — nothing the model says becomes a locator
+or a PASS/FAIL opinion:
+
+1. `interpretPageWithFallback` (`discovery/ai-enrichment.ts:114`) runs per
+   discovered page with a 15s timeout; on error, timeout or malformed output it
+   falls back to the deterministic heuristic. The result is persisted as
+   `discovered_pages.ai_page_type / ai_purpose / ai_fields / ai_actions /
+   ai_source`.
+2. `enrichWithAiAnalysis` (`workflows/builder.ts:142`) analyses built workflows
+   and **logs** the result only.
+3. `createAiCaseGenerator` (`test-generation/ai-generation.ts:28`) may add
+   cases beyond the deterministic matrix — up to 10 pages/run, 45s timeout,
+   suggestions grounded on discovered elements and dropped when they reference
+   something the worker never observed. Stored with `source = "ai"`.
 
 Consequences worth being precise about:
 
-- "AI augments discovery" is **false** today. There is no augmentation.
-- `AI_PROVIDER=openai` currently produces **no behavioural difference**.
-- `@repo/web` lists `@repo/ai` in `transpilePackages` but does not depend on it,
-  and exposes no AI route.
+- `AI_PROVIDER=openai|gemini|grok|local` **does** change behaviour; `mock`
+  does not. Default is `mock`, so a fresh setup is fully deterministic.
+- Live calls are **unverified** — no `GEMINI_API_KEY` / `XAI_API_KEY` in this
+  environment; adapters are unit-tested against mocked `fetch` (25 tests).
+- `apps/web` depends on `@repo/ai` and serves `GET|POST
+  /api/modules/[moduleId]/ai` (server-rebuilt, sanitized context; failure →
+  `503 AI_UNAVAILABLE`), but **no UI calls it**.
 
-### Gemini — not implemented
+### Gemini — implemented, unverified
 
-A clean drop-in. Implementing it means adding a `GeminiProvider` to
-`packages/ai` that satisfies the same interface, plus a `gemini` case in the
-factory, plus actually calling the interface at the points where heuristics
-currently make the decision. Two things must land alongside it:
+`packages/ai/src/gemini.ts`: `POST {base}/models/{model}:generateContent` with
+`responseMimeType: application/json` and the `x-goog-api-key` header. Output is
+`.parse()`d against `AiPageInterpretationSchema` / `AiWorkflowAnalysisSchema` /
+`parseTestCaseSuggestions`. Redaction enforced at `gemini.ts:100` via
+`sanitizePageContext`.
 
-1. **Redaction.** The discovery page snapshot must have secrets stripped before
-   it leaves the worker. Steps already carry `{{username}}` / `{{password}}`
-   placeholders, so the safe path exists — it just has to be enforced.
-2. **Validation.** Zod schemas for AI output already exist in `@repo/schemas`
-   but no generator consumes them. Wire them in the same change.
+### Jev Ultrafast — implemented via System One, wired
 
-### Jev Ultrafast — not implemented
-
-`browser-use/jev-ultrafast` is real and MIT licensed. Integrating it is not a
-matter of adding a file. Verified constraints:
-
-1. **It is Python** (`uv sync`, `from jev_ultrafast import Agent`). This
-   codebase is TypeScript. A sidecar process plus an IPC boundary is required
-   for the upstream package.
-2. **It drives real Chrome over CDP** via Browser Use's "Browser Harness" — not
-   Playwright. The intended diagram, where Jev and Playwright drive the same
-   page, does not match upstream behaviour. The Node port
-   **`@tontoko/jev-browser`** wraps an existing Playwright `page` and keeps
-   native assertions available, and is the correct bridge for this repository.
-3. **It transmits visible page text to its decision model on every step.** After
-   authentication that text includes customer data. This collides with the
-   "secrets never leave the platform" rule and needs an explicit redaction
-   decision before any integration ships.
-4. It requires `TYPESAFE_API_KEY` plus an OpenAI-compatible text-model key.
-
-The intended fallback chain, none of which exists yet:
+Jev is called directly over TypeSafe System One from TypeScript (see
+`docs/requirements.md` §13). No Python sidecar and no second browser: Jev chooses
+among elements the worker enumerated, and Playwright acts on the chosen node.
 
 ```text
 structured target
-  → semantic locator (Playwright)      ← exists today
-  → Jev dynamic resolution             ← MISSING
-  → FAIL with diagnostic              ← exists today
+  → semantic locator (Playwright, polled 3s)
+  → Jev dynamic resolution             (TYPESAFE_API_KEY)
+  → FAIL with diagnostic
 ```
 
-The final rung is deliberate: a target that cannot be resolved fails loudly
-rather than being silently skipped.
+`createJevAgent` is built in discovery (`runner.ts:116`) and execution
+(`processor.ts:53`); enabled by `TYPESAFE_API_KEY`, a no-op otherwise. Discovery
+also uses Jev to recognise and complete login forms the heuristics miss, and to
+skip submit-like actions it judges irreversible.
 
 ### What the system does without either
 
 Everything else is real and works: discovery, the application model, workflow
 derivation, deterministic test-case generation, execution, assertions,
-screenshots and reporting. Neither AI nor Jev is on the critical path, and
-neither is stubbed out to look present.
+screenshots and reporting. Neither AI nor Jev is on the critical path — the
+runtime pivots entirely on `AI_PROVIDER=mock` / unset `TYPESAFE_API_KEY`.
 
 ---
 
@@ -181,8 +190,9 @@ neither is stubbed out to look present.
                 │  ├ chromium.launch             │   (no status filter)    │
                 │  ├ login with credential       ├ fresh context per case   │
                 │  ├ snapshotPage()              ├ resolve locator hints    │
-                │  │   ⚠ AIProvider constructed ├ perform steps            │
-                │  │     but NEVER invoked      ├ substitute {{tokens}}    │
+                │  │   ▶ AIProvider invoked     ├ perform steps            │
+                │  │     (advisory)             ├ substitute {{tokens}}    │
+                │  │     AI cases source="ai"   ├ expand CSV rows per case  │
                 │  ├ build action space          ├ poll expectation ≤10s    │
                 │  ├ pick safe action            ├ screenshot (masked)      │
                 │  ├ execute + screenshot        └ INSERT result row        │
@@ -197,12 +207,13 @@ neither is stubbed out to look present.
                             │  or any reachable target app   │
                             └────────────────────────────────┘
 
-  NOT WIRED INTO ANY PATH:
+  ADVISORY, OFF UNLESS CONFIGURED:
   ┌──────────────────────────┐  ┌──────────────────────────────────┐
-  │ GeminiProvider           │  │ Jev Ultrafast                   │
-  │ @google/genai            │  │ @tontoko/jev-browser (Node)     │
-  │ GEMINI_API_KEY           │  │ TYPESAFE_API_KEY + text model   │
-  │ absent from package.json │  │ absent from package.json        │
+  │ AIProvider: mock|openai  │  │ Jev (TypeSafe System One)       │
+  │ |gemini|grok|local       │  │ TYPESAFE_API_KEY                │
+  │ page intent · workflow   │  │ login assist · irreversible     │
+  │ analysis · AI cases      │  │ guard · locator fallback        │
+  │ (GEMINI/XAI/OPENAI keys) │  │ live calls unverified           │
   └──────────────────────────┘  └──────────────────────────────────┘
 ```
 
@@ -214,7 +225,7 @@ Shared library layer consumed by both runtimes:
 | `@repo/db` | Drizzle client, schema, migrations, seed |
 | `@repo/schemas` | Zod contracts shared by web + worker |
 | `@repo/browser` | Playwright wrappers: element collection, action/navigation detection, page classification, locator resolution, DOM masking |
-| `@repo/ai` | `AIProvider` adapters (`mock`, `local`, `openai`). **Constructed, never invoked.** |
+| `@repo/ai` | `AIProvider` adapters (`mock`, `openai`, `gemini`, `grok`, `local`) + TypeSafe System One (Jev) client and sanitizer. **Invoked at three advisory points.** |
 
 ---
 
@@ -262,7 +273,7 @@ runDiscovery
   │    ├─ scope guard ── out-of-scope nav?  skip + log (auth redirects excepted)
   │    ├─ snapshotPage()          @repo/browser   element collection
   │    ├─ analyzeCurrentPage()    @repo/browser   page type, name, heading
-  │    │     ⚠ AI hook exists here but is not wired
+  │    │     ▶ AI interpretPageWithFallback (advisory, heuristic fallback)
   │    ├─ buildActionSpace()      indexed + deduped candidate actions
   │    ├─ decideOneAction()       scored; blocked/destructive/logout excluded
   │    ├─ execute action          resolveLocator() → fill / click / select
@@ -294,7 +305,11 @@ page + discovered controls
                          {{username}} / {{password}}
 ```
 
-This path is **fully deterministic**. There is no model call.
+This path is **fully deterministic** for the matrix itself. With
+`AI_PROVIDER` set to a real provider, `createAiCaseGenerator` additionally asks
+the model for cases the matrix did not cover (max 10 pages/run, 45s timeout,
+grounded on discovered elements, stored as `source = "ai"`); nothing the model
+returns can replace a deterministic case.
 
 Re-discovery reconciles rather than duplicates: only rows with
 `source = 'generated'` are rewritten, and both `test_cases.steps` and the
@@ -316,7 +331,8 @@ worker: processTestRunJob
   4. run → RUNNING
   5. load every test case for the module
      ⚠ no status filter — DRAFT and REJECTED cases execute too
-     ⚠ no CSV dataset applied — one result per case, not per row
+     ▶ expandCases() — a case bound to a CSV dataset runs once per row
+       ({{column}} substitution); missing/empty dataset → warn + run once
   6. launch chromium once
   7. for each case, serially, in a FRESH browser context:
        ├─ perform action steps (GOTO / FILL / PRESS / CLICK / SUBMIT)
@@ -334,11 +350,12 @@ GET /api/test-runs/[testRunId]
 
 Known gaps in this path, all tracked in `requirements.md` §7 and §9:
 retries (`TEST_RUN_ATTEMPTS = 1`, hardcoded), parallel workers
-(`TEST_RUN_CONCURRENCY = 1`, serial loop), rerun-failed, per-row CSV
-executions, and a separate `test_executions` entity for attempts.
+(`TEST_RUN_CONCURRENCY = 1`, serial loop), rerun-failed, and a separate
+`test_executions` entity for attempts. CSV expansion runs, but nothing can bind
+a case to a dataset (`test_cases.dataset_id` is SQL-only) — see §9.9.
 
-One result row per case, and a case that throws mid-execution is recorded as
-`FAIL` with the error rather than aborting the run.
+One result row per case (or per dataset row), and a case that throws
+mid-execution is recorded as `FAIL` with the error rather than aborting the run.
 
 ### 5. Evidence storage
 
@@ -377,9 +394,9 @@ users ─┬─< projects ─┬─< modules ─┬─< discovery_sessions ─�
        │             │            │      ⚠ module_id NOT NULL — project-scope migration approved
        │             │            ├─< test_data_sets ─── data jsonb
        │             │            ├─< workflows
-       │             │            └─< test_cases ─┬─< test_case_steps  (mirrors steps jsonb)
-       │             │                           └─< test_run_results
-       │             ├─< test_runs ────────────────┘
+│             │            └─< test_cases ─┬─< test_case_steps  (mirrors steps jsonb)
+│             │         dataset_id FK (0014)└─< test_run_results  (+ dataset_id/row)
+│             ├─< test_runs ────────────────┘   environment_id FK (0013, unpopulated)
        │             └─< sessions (NextAuth-style app sessions)
        └─< accounts / verifications
 ```
@@ -389,8 +406,13 @@ Two modelling notes that matter for the remaining roadmap:
 - `test_case_steps` duplicates `test_cases.steps`. The generator writes both;
   the executor reads only the JSONB. The table exists as the relational
   migration path, not as the source of truth.
-- `test_data_sets` has no foreign key to any test or run entity, which is the
-  structural reason CSV-driven execution is not yet possible.
+- CSV binding FKs arrived in migration `0014`: `test_cases.dataset_id` and
+  `test_run_results.dataset_id`, both `set null` on delete. The worker writes
+  them per row, but nothing in the API/UI can set `test_cases.dataset_id` yet.
+- Migrations `0013` tables (`environments`, `coverage_targets` / `coverage_links`
+  / `coverage_records`, `finding_groups` / `findings`) are **not touched by
+  application code**: the coverage and findings engines are unit-tested but
+  never invoked from a run.
 
 ---
 
@@ -426,9 +448,9 @@ mean changing behaviour for the discovery path.
 - **Playwright** — the only piece that can honestly answer "did the app reject
   this login", which is the whole point of the execution step.
 - **Deterministic-first** — the whole pipeline is reproducible with no API keys
-  and no network. This is why the missing AI layer is a gap in capability
-  rather than a broken build, and why the `AIProvider` seam is kept even though
-  it is currently unwired.
+  and no network. AI and Jev are advisory additions that default to `mock` /
+  off, so they never change an outcome the deterministic engine would reach; no
+  key means no behavioural risk.
 - **Portable locator hints** — storing a snapshot CSS selector in a test case
   guarantees the case breaks on the next redesign. Role hints keep cases alive.
 - **SKIP over false PASS** — a suite that cannot verify an outcome reports

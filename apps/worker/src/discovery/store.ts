@@ -388,6 +388,8 @@ export class DiscoveryStore {
       testData?: string | null;
       expectedResult?: string | null;
       steps: Array<{ order: number; action: string; target: string; value?: string; stepType: string; expect?: unknown }>;
+      /** "generated" (deterministic, refreshed on re-discovery) or "ai" (kept once written). */
+      source?: "generated" | "ai";
     },
   ): Promise<void> {
     const code = await this.nextTestCaseCode();
@@ -403,7 +405,7 @@ export class DiscoveryStore {
         type: input.type,
         priority: input.priority,
         status: "DRAFT",
-        source: "generated",
+        source: input.source ?? "generated",
         role: input.role,
         precondition: input.precondition,
         testData: input.testData ?? null,

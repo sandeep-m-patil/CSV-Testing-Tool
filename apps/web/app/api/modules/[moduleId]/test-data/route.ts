@@ -1,4 +1,4 @@
-import { desc, eq } from "drizzle-orm";
+import { and, desc, eq } from "drizzle-orm";
 import { testDataSets } from "@repo/db/schema";
 import { AppError } from "@repo/core";
 import { CreateTestDataSetInputSchema, normaliseTestDataSetInput } from "@repo/schemas";
@@ -21,7 +21,7 @@ export const GET = route(async (_request, context: Params) => {
     .where(eq(testDataSets.moduleId, moduleId))
     .orderBy(desc(testDataSets.createdAt));
   return ok({ testDataSets: rows });
-};
+});
 
 /**
  * Stores a dataset.
@@ -73,8 +73,7 @@ export const DELETE = route(async (request, context: Params) => {
   // Scoped by module so an id from another project cannot be deleted here.
   await db
     .delete(testDataSets)
-    .where(eq(testDataSets.id, datasetId))
-    .where(eq(testDataSets.moduleId, moduleId));
+    .where(and(eq(testDataSets.id, datasetId), eq(testDataSets.moduleId, moduleId)));
 
   return noContent();
 });

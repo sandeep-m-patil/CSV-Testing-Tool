@@ -1,7 +1,7 @@
 import "dotenv/config";
 import { eq } from "drizzle-orm";
 import { getDb, closeAll } from "./index";
-import { credentials, modules, projects, testDataSets, users } from "./schema/index";
+import { credentials, moduleCredentials, modules, projectRoles, projects, testDataSets, users } from "./schema/index";
 
 const db = getDb();
 
@@ -64,19 +64,19 @@ async function seed(): Promise<void> {
     throw new Error("Seed requires Material Management and Material Review modules");
   }
 
-  await db.insert(credentials).values([
-    {
-      moduleId: mgmt!.id,
-      role: "Material Creator",
-      username: "creator@test.com",
-      secretData: `{ "encrypted": true, "placeholder": "set via UI" }`,
-    },
-    {
-      moduleId: review!.id,
-      role: "QC Reviewer",
-      username: "reviewer@test.com",
-      secretData: `{ "encrypted": true, "placeholder": "set via UI" }`,
-    },
+  // Seeded rows hold a placeholder secret; set the real one via the UI.
+  const placeholder = `{ "encrypted": true, "placeholder": "set via UI" }`;
+  const seeded = await db
+    .insert(credentials)
+    .values([
+      { projectId: project!.id, name: "Material Creator", role: "Material Creator", username: "creator@test.com", secretData: placeholder, encryptionScope: project!.id },
+      { projectId: project!.id, name: "QC Reviewer", role: "QC Reviewer", username: "reviewer@test.com", secretData: placeholder, encryptionScope: project!.id },
+    ])
+    .returning();
+  await db.insert(projectRoles).values(seeded.map((row) => ({ projectId: project!.id, name: row.role })));
+  await db.insert(moduleCredentials).values([
+    { moduleId: mgmt!.id, credentialId: seeded[0]!.id },
+    { moduleId: review!.id, credentialId: seeded[1]!.id },
   ]);
 
   await db.insert(testDataSets).values([

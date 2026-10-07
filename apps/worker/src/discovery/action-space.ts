@@ -70,6 +70,10 @@ export interface ActorContext {
   fillCount: number;
   navigationDepth: number;
   navigationDepthBudget: number;
+  /** Jev's login-screen verdict per URL, so each page costs at most one call. */
+  loginChecks: Map<string, boolean>;
+  /** Jev signs in at most once per role; after that the heuristics take over. */
+  isJevLoginAttempted: boolean;
 }
 
 export type DecisionKind = "fill" | "submit-login" | "submit-form" | "navigate" | "click" | "review" | "none";
@@ -158,6 +162,18 @@ export function decideOneAction(space: IndexedAction[], ctx: ActorContext): Acto
   }
 
   return { kind: "none", index: null, reason: "page exhausted" };
+}
+
+/**
+ * True when the deterministic login sequence can find both credential fields.
+ * When it cannot (non-English labels, phone-number logins, custom widgets),
+ * discovery hands the login to Jev instead of filling the form with guesses.
+ */
+export function hasHeuristicLoginFields(space: IndexedAction[], ctx: ActorContext): boolean {
+  if (!ctx.roleUsername) return false;
+  const userNameField = findField(space, "FILL", (label) => USERNAME_HINT.test(label) && !PASSWORD_HINT.test(label));
+  const passwordField = findField(space, "FILL", (label) => PASSWORD_HINT.test(label));
+  return Boolean(userNameField && passwordField);
 }
 
 function navScore(item: IndexedAction): number {

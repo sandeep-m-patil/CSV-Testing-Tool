@@ -3,41 +3,48 @@
 @tailwind utilities;
 
 @layer base {
-  /* Dark-only monochrome base (black & white) with semantic status colours.
-     There is deliberately no light theme: `:root` carries the dark tokens and
-     `.dark` restates them so a stale `class="dark"` or `class="light"` on
-     <html> can never flip the app back to a light palette. */
+  /* Dark-only design system. There is deliberately no light theme: `:root`
+     carries the dark tokens and `.dark` restates them so a stale class on
+     <html> can never flip the app to a light palette.
+
+     Surfaces step up in lightness: background < card < popover < muted/accent.
+     Semantic colours (success / warning / info / destructive) are bright
+     enough to read as text on every surface (>= 4.5:1) and pair with a dark
+     `*-foreground` when used as a solid fill. `--destructive-emphasis` is the
+     deeper red behind white text on solid destructive buttons. */
   :root,
   .dark {
-    --background: 0 0% 6%;
-    --foreground: 0 0% 96%;
-    --card: 0 0% 9%;
-    --card-foreground: 0 0% 96%;
-    --popover: 0 0% 9%;
-    --popover-foreground: 0 0% 96%;
-    --primary: 0 0% 96%;
-    --primary-foreground: 0 0% 6%;
-    --secondary: 0 0% 15%;
-    --secondary-foreground: 0 0% 96%;
-    --muted: 0 0% 15%;
-    --muted-foreground: 0 0% 65%;
-    --accent: 0 0% 20%;
-    --accent-foreground: 0 0% 96%;
-    --destructive: 0 72% 55%;
+    --background: 240 6% 4%;
+    --foreground: 240 5% 96%;
+    --card: 240 5% 7%;
+    --card-foreground: 240 5% 96%;
+    --popover: 240 5% 9%;
+    --popover-foreground: 240 5% 96%;
+    --primary: 240 5% 96%;
+    --primary-foreground: 240 6% 7%;
+    --secondary: 240 4% 14%;
+    --secondary-foreground: 240 5% 96%;
+    --muted: 240 4% 13%;
+    --muted-foreground: 240 5% 65%;
+    --accent: 240 4% 16%;
+    --accent-foreground: 240 5% 96%;
+    --brand: 250 90% 72%;
+    --brand-foreground: 240 6% 7%;
+    --destructive: 0 84% 66%;
     --destructive-foreground: 0 0% 100%;
-    --success: 142 60% 55%;
-    --success-foreground: 0 0% 100%;
+    --destructive-emphasis: 0 72% 46%;
+    --success: 142 64% 52%;
+    --success-foreground: 240 6% 7%;
     --warning: 38 92% 58%;
-    --warning-foreground: 0 0% 100%;
+    --warning-foreground: 240 6% 7%;
     --info: 213 94% 68%;
-    --info-foreground: 0 0% 100%;
-    --border: 0 0% 20%;
-    --input: 0 0% 24%;
-    --ring: 0 0% 96%;
+    --info-foreground: 240 6% 7%;
+    --border: 240 4% 16%;
+    --input: 240 4% 20%;
+    --ring: 250 90% 72%;
     --radius: 0.625rem;
-    /* Scrollbar and selection tuned to the dark surface. */
-    --scrollbar-thumb: 0 0% 26%;
-    --scrollbar-thumb-hover: 0 0% 34%;
+    --scrollbar-thumb: 240 4% 24%;
+    --scrollbar-thumb-hover: 240 4% 32%;
   }
 }
 
@@ -45,13 +52,23 @@
   * {
     @apply border-border;
   }
-  body {
-    @apply bg-background text-foreground antialiased;
-    /* The app is dark-only; never let the browser paint a light surface. */
+  html {
     color-scheme: dark;
+    -webkit-tap-highlight-color: transparent;
+  }
+  body {
+    @apply min-h-screen overflow-x-hidden bg-background font-sans text-foreground antialiased;
     text-rendering: optimizeLegibility;
   }
-  /* Respect reduced-motion for the shimmer animation below. */
+  h1,
+  h2,
+  h3,
+  h4 {
+    @apply tracking-tight;
+  }
+  :focus-visible {
+    outline-color: hsl(var(--ring));
+  }
   @media (prefers-reduced-motion: reduce) {
     *,
     *::before,
@@ -63,9 +80,13 @@
     }
   }
   ::selection {
-    @apply bg-primary/25;
+    background-color: hsl(var(--brand) / 0.3);
   }
-  /* Dark scrollbars, since the default light ones glare against #0a0a0a. */
+  /* Native checkboxes and radios pick up the brand colour. */
+  input[type="checkbox"],
+  input[type="radio"] {
+    accent-color: hsl(var(--brand));
+  }
   ::-webkit-scrollbar {
     width: 10px;
     height: 10px;
@@ -81,6 +102,16 @@
   }
   ::-webkit-scrollbar-thumb:hover {
     background-color: hsl(var(--scrollbar-thumb-hover));
+  }
+}
+
+@layer utilities {
+  /* Hide a scrollbar on horizontally scrolling tab strips while keeping them scrollable. */
+  .scrollbar-none {
+    scrollbar-width: none;
+  }
+  .scrollbar-none::-webkit-scrollbar {
+    display: none;
   }
 }
 

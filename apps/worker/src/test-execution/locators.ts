@@ -9,6 +9,8 @@ import type { SemanticResolver, SemanticTarget } from "./semantic-target";
  */
 
 const LOCATOR_TIMEOUT_MS = 8000;
+const DETERMINISTIC_POLL_MS = 3000;
+const POLL_INTERVAL_MS = 250;
 
 const EMAIL_SELECTOR = [
   'input[type="email"]',
@@ -72,12 +74,22 @@ function selectorForRole(role: string): string {
 }
 
 const TEXT_HINT_PREFIX = "text:";
+const LABEL_HINT_PREFIX = "label:";
+
+function payloadOf(hint: string, prefix: string): string | null {
+  if (!hint.startsWith(prefix)) return null;
+  const value = hint.slice(prefix.length).trim();
+  return value.length > 0 ? value : null;
+}
 
 /** Returns the accessible name carried by a `text:` hint, or null. */
 function textOf(hint: string): string | null {
-  if (!hint.startsWith(TEXT_HINT_PREFIX)) return null;
-  const value = hint.slice(TEXT_HINT_PREFIX.length).trim();
-  return value.length > 0 ? value : null;
+  return payloadOf(hint, TEXT_HINT_PREFIX);
+}
+
+/** Returns the field label carried by a `label:` hint (inputs located by label or placeholder), or null. */
+function labelOf(hint: string): string | null {
+  return payloadOf(hint, LABEL_HINT_PREFIX);
 }
 
 /**
@@ -92,6 +104,22 @@ async function resolveByAccessibleName(page: Page, name: string): Promise<Locato
     page.getByRole("heading", { name, exact: true }),
     page.getByText(name, { exact: true }),
   ];
+  return firstVisible(strategies);
+}
+
+/** Resolves a form field by its visible label, placeholder or accessible name. */
+async function resolveByFieldLabel(page: Page, name: string): Promise<Locator | null> {
+  const strategies: Locator[] = [
+    page.getByLabel(name, { exact: true }),
+    page.getByPlaceholder(name, { exact: true }),
+    page.getByRole("textbox", { name, exact: true }),
+    page.getByRole("combobox", { name, exact: true }),
+    page.getByLabel(name),
+  ];
+  return firstVisible(strategies);
+}
+
+async function firstVisible(strategies: Locator[]): Promise<Locator | null> {
   for (const candidate of strategies) {
     const isVisible = await candidate.first().isVisible().catch(() => false);
     if (isVisible) return candidate.first();
@@ -99,10 +127,22 @@ async function resolveByAccessibleName(page: Page, name: string): Promise<Locato
   return null;
 }
 
+/** Every element a hint describes, for counting. Null for an unrecognised hint. */
+export function allMatches(page: Page, hint: string): Locator | null {
+  const text = textOf(hint);
+  if (text !== null) return page.getByText(text, { exact: true });
+  const label = labelOf(hint);
+  if (label !== null) return page.getByLabel(label);
+  const parsed = selectorFor(hint);
+  return parsed ? page.locator(parsed.selector) : null;
+}
+
 /** Returns the first visible match for a locator hint, or null when absent. */
 export async function resolveLocator(page: Page, hint: string): Promise<Locator | null> {
   const text = textOf(hint);
   if (text !== null) return resolveByAccessibleName(page, text);
+  const label = labelOf(hint);
+  if (label !== null) return resolveByFieldLabel(page, label);
 
   const parsed = selectorFor(hint);
   if (!parsed) return null;
@@ -125,27 +165,68 @@ export async function resolveLocator(page: Page, hint: string): Promise<Locator 
   return candidates.nth(target);
 }
 
-export async function waitForLocator(
-  page: Page,
-  hint: string,
-  resolver: SemanticResolver | null = null,
-): Promise<Locator> {
-  const locator = await resolveLocator(page, hint);
-  if (locator) return locator;
+/**
+ * Retries the deterministic lookup for a short window. Late-rendering targets
+ * are common, and asking Jev about a half-loaded page wastes a call and risks
+ * picking a look-alike that rendered first.
+ */
+async function pollLocator(page: Page, hint: string): Promise<Locator | null> {
+  const deadline = Date.now() + DETERMINISTIC_POLL_MS;
+  for (;;) {
+    const locator = await resolveLocator(page, hint);
+    if (locator || Date.now() >= deadline) return locator;
+    await page.waitForTimeout(POLL_INTERVAL_MS);
+  }
+}
+
+/**
+ * The step's target could not be found by any rung of the chain. The run
+ * engine reports this as BLOCKED, not FAIL: the case could not be executed as
+ * written, which is a different finding from the application misbehaving.
+ */
+export class TargetNotFoundError extends Error {
+  readonly hint: string;
+
+  constructor(message: string, hint: string) {
+    super(message);
+    this.name = "TargetNotFoundError";
+    this.hint = hint;
+  }
+}
+
+export interface ResolvedTarget {
+  locator: Locator;
+  resolvedBy: "locator" | "jev";
+}
+
+/** Portable hint → polled Playwright locator → Jev → wait for the hint's selector → TargetNotFoundError. */
+export async function waitForTarget(page: Page, hint: string, resolver: SemanticResolver | null = null): Promise<ResolvedTarget> {
+  const locator = await pollLocator(page, hint);
+  if (locator) return { locator, resolvedBy: "locator" };
 
   if (resolver?.isEnabled()) {
     const semantic = await resolver.resolve(page, semanticTargetFor(hint));
-    if (semantic) return semantic;
+    if (semantic) return { locator: semantic, resolvedBy: "jev" };
   }
 
   const name = textOf(hint);
-  if (name !== null) throw new Error(`No visible control named "${name}"`);
+  if (name !== null) throw new TargetNotFoundError(`No visible control named "${name}"${fallbackNote(resolver)}`, hint);
+  const label = labelOf(hint);
+  if (label !== null) throw new TargetNotFoundError(`No visible field labelled "${label}"${fallbackNote(resolver)}`, hint);
 
   const parsed = selectorFor(hint);
-  if (!parsed) throw new Error(`Unrecognised locator hint: ${hint}`);
+  if (!parsed) throw new TargetNotFoundError(`Unrecognised locator hint: ${hint}`, hint);
   const fallback = page.locator(parsed.selector).first();
-  await fallback.waitFor({ state: "visible", timeout: LOCATOR_TIMEOUT_MS });
-  return fallback;
+  try {
+    await fallback.waitFor({ state: "visible", timeout: LOCATOR_TIMEOUT_MS });
+  } catch {
+    throw new TargetNotFoundError(`No visible element for ${hint}${fallbackNote(resolver)}`, hint);
+  }
+  return { locator: fallback, resolvedBy: "locator" };
+}
+
+export async function waitForLocator(page: Page, hint: string, resolver: SemanticResolver | null = null): Promise<Locator> {
+  return (await waitForTarget(page, hint, resolver)).locator;
 }
 
 /**
@@ -155,6 +236,8 @@ export async function waitForLocator(
 function semanticTargetFor(hint: string): SemanticTarget {
   const text = textOf(hint);
   if (text !== null) return { intent: `the control labelled "${text}"`, role: "button" };
+  const label = labelOf(hint);
+  if (label !== null) return { intent: `the input field labelled "${label}"`, role: "textbox" };
 
   const role = hint.split(":")[1];
   if (selectorFor(hint) === null || !role) return { intent: `the ${hint} control` };
@@ -173,6 +256,11 @@ function roleOfRole(role: string): SemanticTarget["role"] {
     button: "button",
   };
   return known[role];
+}
+
+/** Says whether Jev was consulted, so a failure report shows the whole chain. */
+function fallbackNote(resolver: SemanticResolver | null): string {
+  return resolver?.isEnabled() ? ` (Jev fallback also found no match)` : "";
 }
 
 export { LOCATOR_TIMEOUT_MS };

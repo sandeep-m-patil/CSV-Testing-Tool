@@ -5,20 +5,21 @@ import { Suspense, useState } from "react";
 import { useForm } from "react-hook-form";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
+import { Loader2 } from "lucide-react";
 import { LoginInputSchema, type LoginInput } from "@repo/schemas";
 import { toast } from "sonner";
 import { apiFetch } from "@/lib/api-client";
 import { errorToast } from "@/lib/mutation";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { FormFieldError } from "@/components/ui/form";
-import { ThemeToggle } from "@/features/theme/theme-toggle";
+import { Skeleton } from "@/components/ui/skeleton";
+import { AuthHeading } from "../auth-heading";
 
 export default function LoginPage() {
   return (
-    <Suspense fallback={null}>
+    <Suspense fallback={<Skeleton className="h-80 w-full rounded-xl" />}>
       <LoginForm />
     </Suspense>
   );
@@ -49,39 +50,43 @@ function LoginForm() {
   }
 
   return (
-    <div className="relative flex min-h-screen items-center justify-center bg-background p-6">
-      <div className="absolute right-4 top-4">
-        <ThemeToggle />
-      </div>
-      <Card className="w-full max-w-md">
-        <CardHeader>
-          <CardTitle className="text-2xl">Sign in</CardTitle>
-          <CardDescription>Autotest - autonomous web application testing platform</CardDescription>
-        </CardHeader>
-        <CardContent>
-          <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
-            <div className="space-y-2">
-              <Label htmlFor="email">Email</Label>
-              <Input id="email" type="email" autoComplete="email" placeholder="you@company.com" {...register("email")} />
-              <FormFieldError error={formState.errors.email} touched={formState.touchedFields.email} />
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="password">Password</Label>
-              <Input id="password" type="password" autoComplete="current-password" {...register("password")} />
-              <FormFieldError error={formState.errors.password} touched={formState.touchedFields.password} />
-            </div>
-            <Button type="submit" className="w-full" disabled={submitting}>
-              {submitting ? "Signing in…" : "Sign in"}
-            </Button>
-          </form>
-          <p className="mt-4 text-center text-sm text-muted-foreground">
-            No account?{" "}
-            <Link href="/signup" className="font-medium text-primary hover:underline">
-              Create one
-            </Link>
-          </p>
-        </CardContent>
-      </Card>
-    </div>
+    <>
+      <AuthHeading title="Sign in" description="Welcome back. Sign in to continue testing your applications." />
+      <form onSubmit={handleSubmit(onSubmit)} className="space-y-5">
+        <div className="space-y-2">
+          <Label htmlFor="email">Email</Label>
+          <Input
+            id="email"
+            type="email"
+            autoComplete="email"
+            placeholder="you@company.com"
+            className="h-10"
+            {...register("email")}
+          />
+          <FormFieldError error={formState.errors.email} touched={formState.touchedFields.email} />
+        </div>
+        <div className="space-y-2">
+          <Label htmlFor="password">Password</Label>
+          <Input
+            id="password"
+            type="password"
+            autoComplete="current-password"
+            className="h-10"
+            {...register("password")}
+          />
+          <FormFieldError error={formState.errors.password} touched={formState.touchedFields.password} />
+        </div>
+        <Button type="submit" size="lg" className="w-full" disabled={submitting}>
+          {submitting ? <Loader2 className="animate-spin" aria-hidden="true" /> : null}
+          {submitting ? "Signing in…" : "Sign in"}
+        </Button>
+      </form>
+      <p className="mt-6 text-center text-sm text-muted-foreground">
+        No account?{" "}
+        <Link href="/signup" className="font-medium text-foreground underline-offset-4 hover:underline">
+          Create one
+        </Link>
+      </p>
+    </>
   );
 }

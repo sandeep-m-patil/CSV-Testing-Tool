@@ -20,11 +20,12 @@ pnpm-workspace TypeScript.
 | [configuration](docs/configuration.md) | Environment variables |
 | [example flows](docs/example-flows.md) | Walkthrough of a full run |
 
-> ⚠️ **The AI layer is not wired.** There is an `AIProvider` seam and a provider
-> factory, but no Gemini implementation and — more importantly — no call sites.
-> Test generation is fully deterministic today. Likewise there is no Jev
-> Ultrafast integration. See [Status](#status) for the complete list of what does
-> and does not work.
+> ⚠️ **AI and Jev are wired but off by default.** `AI_PROVIDER` defaults to
+> `mock`, which makes every AI path a no-op; Jev stays dormant until
+> `TYPESAFE_API_KEY` is set. Both are advisory: neither decides pass/fail, and
+> the deterministic pipeline runs unchanged with no keys. Live calls against
+> real Gemini/Grok/OpenAI/Jev endpoints are **unverified** — no keys are
+> configured in this environment. See [Status](#status).
 
 ---
 
@@ -75,7 +76,8 @@ The pipeline, end to end:
 ### 2. Project → Module hierarchy
 - **Project** — one web application. Owns `baseUrl`, `environment`
   (`development | qa | staging | production | custom`) and a `productionConfirmed`
-  flag. **Production projects are hard-blocked from discovery and test runs.**
+  flag. Production projects skip **automatic** discovery; manual per-module
+  discovery and test runs are **not** blocked (see [Security model](#security-model)).
 - **Module** — a browsable area of the project (e.g. *Materials*, *Lab Books*),
   with a `startPath` and `includePaths` that define a **hard crawl scope**.
 
@@ -157,6 +159,13 @@ pass rate.
   for outcomes that are legitimately either.
 - A screenshot is captured per case with sensitive inputs masked, stored under
   `modules/{moduleId}/runs/{runId}/`.
+- **Data-driven expansion** — a case linked to a CSV dataset
+  (`test_cases.dataset_id`) runs once per row: `{{column}}` tokens are
+  substituted, `dataset_id` / `dataset_row` are recorded on each result, the
+  `testData` column shows the row's actual values, and the screenshot key gets a
+  `-row-N` suffix. A dataset that is missing, empty or non-CSV logs a warning
+  and the case runs once unchanged rather than silently dropping out of the run.
+  (Linking a case to a dataset is SQL-only today — see §9.)
 - `GET /api/test-runs/[testRunId]` returns the run, its totals and every result
   with a resolved screenshot URL.
 
@@ -164,21 +173,33 @@ pass rate.
 - `/modules/[moduleId]/review` — browse discovered workflows and generated test
   cases; approve/edit via the `workflows/*` and `test-cases/*` APIs.
 - `GET /api/modules/[moduleId]/report` — per-module discovery summary.
+- `GET /api/modules/[moduleId]/report/export?format=json|html|csv|junit` —
+  up to 50 runs, session + module guarded. **API-only; no UI links to it** (the
+  report page's "Download JSON" button serialises the open run client-side).
 - `/modules/[moduleId]/report` — printable report styling.
 
-### 9. CSV interop
-> ⚠️ **Not currently usable.** `apps/web/lib/test-cases/csv.ts` contains real
-> RFC 4180 parsing and serialisation, but **nothing imports it**. The
-> `GOTO … | FILL … | VERIFY …` DSL below is *not* a live format, and CSV
-> datasets cannot be saved from the UI (the client sends `{name, dataType, csv}`
-> while the API validates `{name, data:{type, columns, rows}}` → HTTP 400).
-> Most importantly, **execution never reads a dataset** — a run produces one
-> result per test case, not per CSV row. See `docs/requirements.md` §9. This is
-> the top roadmap priority.
+### 9. CSV data-driven testing
+> ⚠️ **Partially usable.** The worker side is done: a case bound to a CSV
+> dataset expands to **one result per row**, `{{column}}` tokens are substituted
+> into step targets and values, and each result carries `dataset_id` +
+> `dataset_row` with a `row N` badge in the grid and report (screenshots get a
+> `-row-N` suffix). What is missing is the way in: **no API or UI can set
+> `test_cases.dataset_id`** (`UpdateTestCaseInputSchema` has no such field), so
+> binding a case to a dataset requires direct SQL. Also broken today: saving a
+> `KEY_VALUE` dataset from the UI fails validation (client sends an object, the
+> schema expects a string), and `DELETE /api/test-data?id=…` chains two
+> `.where()` calls — drizzle *replaces* rather than ANDs — so it deletes **every**
+> dataset in the module. The RFC 4180 parser in `apps/web/lib/test-cases/csv.ts`
+> still has zero importers, and the `GOTO … | FILL …` DSL below has no parser and
+> no consumer. See `docs/requirements.md` §9.
 >
 > ```
 > GOTO http://localhost:4000/login | FILL role:email a@b.c | SUBMIT role:submit | VERIFY stayed_on_page
 > ```
+
+Dataset rows are parsed server-side on upload (`normaliseTestDataSetInput`),
+which rejects a header-only CSV with 400. The UI's own check is still just
+`text.includes(",")`.
 
 `VERIFY` accepts `navigated_away`, `stayed_on_page`, `error_message`,
 `app_responsive`, `attr:<target>:<attribute>=<value>`, and
@@ -190,22 +211,33 @@ pass rate.
   evidence is served via `/storage/[...key]`.
 - **S3** driver (aws-sdk v3, custom endpoint + `forcePathStyle` for Neon S3).
 
-### 11. AI augmentation — NOT WIRED
-> ⚠️ **There is currently no AI in the running system.** `packages/ai` provides a
-> real `AIProvider` interface, a factory, a deterministic `MockProvider`, and an
-> OpenAI-compatible adapter. But the provider is constructed at
-> `apps/worker/src/discovery/runner.ts:107` and the only property ever read is
-> `.label`, in a log string. `interpretPage()` and `analyzeWorkflows()` have
-> **zero call sites**, and there is no `gemini` package or `GEMINI_API_KEY`
-> anywhere in the repo.
->
-> Concretely: every heuristic in discovery is deterministic, `AI_PROVIDER=openai`
-> produces no behavioural difference, and test cases are generated by
-> rule-based builders. There is also **no Jev Ultrafast integration** — an
-> unresolvable target fails with a diagnostic rather than being skipped.
->
-> The seam exists so `GeminiProvider` can be dropped in without touching the
-> pipeline. See `docs/tech-stack.md` § AI and agent integration status.
+### 11. AI augmentation — wired, off by default
+`packages/ai` ships five providers behind one `AIProvider` interface —
+`mock` (the default), `openai`, `gemini`, `grok`, `local` — selected by
+`AI_PROVIDER` through `createAIProvider()`. Gemini is hand-rolled REST
+(`generateContent`), not the Google SDK, matching the no-SDK convention of the
+OpenAI-compatible adapter. `sanitize.ts` redacts credential-shaped values from
+every outbound context, inside each provider as well as at the worker and web
+boundaries.
+
+Three call sites, all advisory and all no-ops when the provider is `mock`:
+
+| Call site | What it does |
+| --- | --- |
+| `interpretPageWithFallback` (`discovery/runner.ts:456`) | Interprets each discovered page with a 15s timeout; falls back to the deterministic heuristic on error/timeout/malformed output. Stored as `ai_page_type` / `ai_purpose` / `ai_source`. |
+| `enrichWithAiAnalysis` (`workflows/builder.ts:142`) | Analyses built workflows and **logs** the result. Never turned into executable steps. |
+| `createAiCaseGenerator` (`test-generation/generator.ts:39`) | Suggests extra cases per page (max 10 pages/run, 45s timeout), grounded on discovered elements; suggestions referencing unknown elements are dropped. Stored with `source = "ai"`. |
+
+Deterministic generation still runs regardless, so the pipeline is complete with
+no key. `GET|POST /api/modules/[moduleId]/ai` serves the application model and
+page interpretation with a server-rebuilt, sanitized context — **the UI does not
+call it yet**. Test-case generation's deterministic path never consults a model.
+
+**Jev (TypeSafe System One)** is likewise wired: `TYPESAFE_API_KEY` enables
+`createJevAgent`, used in discovery for unfamiliar logins and the
+irreversible-action guard, and in execution as the last step of the locator
+fallback chain (`processor.ts:53` → `ctx.resolver` → `waitForLocator`). Unset,
+every hook is a no-op. See [Status](#status) for what remains unverified.
 
 ---
 
@@ -291,19 +323,27 @@ pnpm dev:demo     # http://localhost:4000 — the app under test
 
 ## Data model
 
-18 tables, defined in `packages/db/src/schema/`:
+26 tables, defined in `packages/db/src/schema/`:
 
 | File | Tables |
 | --- | --- |
 | `auth.ts` | `users` |
 | `project.ts` | `projects`, `modules` |
 | `config.ts` | `credentials` (encrypted), `test_data_sets` |
-| `discovery.ts` | `discovery_sessions`, `discovered_pages`, `discovered_elements`, `discovered_actions`, `state_transitions`, `discovery_logs` |
+| `discovery.ts` | `discovery_sessions`, `discovered_pages`, `discovered_elements`, `discovered_actions`, `state_transitions`, `discovery_logs`, `ui_states`, `navigation_edges` |
 | `artifacts.ts` | `discovery_artifacts` |
 | `workflow.ts` | `workflows`, `workflow_steps`, `test_cases`, `test_case_steps`, `test_runs`, `test_run_results` |
+| `environment.ts` | `environments` |
+| `coverage.ts` | `coverage_targets`, `coverage_links`, `coverage_records` |
+| `findings.ts` | `finding_groups`, `findings` |
 
 Hierarchy: `users → projects → modules → { discovery_sessions, workflows,
 test_cases, test_runs }`.
+
+> The last three files (`environment`, `coverage`, `findings` — migration
+> `0013`) are **schema-only today**: no application code reads or writes them.
+> The coverage numbers on the report page are computed from `test_runs` /
+> `test_run_results`, not from `coverage_records`.
 
 > **Note on the dev database:** it currently carries 12 tables with no Drizzle
 > definition — `refresh_tokens` and an orphaned cinema/movie-booking demo
@@ -333,14 +373,16 @@ POST                /api/modules/[moduleId]/discover
 GET                 /api/modules/[moduleId]/discovery
 GET|POST            /api/modules/[moduleId]/credentials
 GET|PATCH|DELETE    /api/modules/[moduleId]/credentials/[credentialId]
-GET|POST            /api/modules/[moduleId]/test-data
+GET|POST            /api/modules/[moduleId]/test-data        (DELETE ?id=… too)
 GET|POST            /api/modules/[moduleId]/workflows
 GET|PATCH|DELETE    /api/modules/[moduleId]/workflows/[workflowId]
 GET|POST            /api/modules/[moduleId]/test-cases
 GET|PATCH|DELETE    /api/modules/[moduleId]/test-cases/[testId]
 GET|POST            /api/modules/[moduleId]/test-runs
+GET|POST            /api/modules/[moduleId]/ai                application model + page interpretation
 GET                 /api/test-runs/[testRunId]
 GET                 /api/modules/[moduleId]/report
+GET                 /api/modules/[moduleId]/report/export?format=json|html|csv|junit
 GET                 /api/health
 GET|PUT             /api/storage/[...key]        GET /storage/[...key]
 ```
@@ -357,18 +399,30 @@ packages/core/    Queue, storage, errors, action safety, logging
 packages/db/      Drizzle schema, migrations, seed
 packages/schemas/ Shared Zod contracts
 packages/browser/ Playwright: collection, detection, analysis, redaction
-packages/ai/      mock / local / OpenAI adapters
+packages/ai/      AIProvider: mock / openai / gemini / grok / local + Jev client
 ```
 
 ---
 
 ## Security model
 - Secret-bearing env vars are git-ignored and app-scoped.
+- **SSRF guard on project base URLs** — `assertTargetUrlAllowed`
+  (`packages/core/url-guard.ts`) rejects non-http(s) schemes, embedded
+  credentials and private/loopback/link-local/metadata hosts at project create
+  and update. `ALLOW_PRIVATE_TARGETS=true` is the local-dev escape hatch
+  (defaults `false`, so `pnpm dev` against `localhost` needs it set; it is
+  **not** in `.env.example`). The guard does **not** cover worker navigation —
+  `page.goto` is unguarded — and `assertSafeFetch` has no caller.
 - Credentials encrypted with AES-256-GCM; decrypted only inside the worker.
+- AI contexts are redacted (`packages/ai/sanitize.ts`) before any outbound
+  request; credential tokens stay `{{username}}` / `{{password}}` in step data.
 - Screenshots are captured **after** DOM masking of sensitive inputs, in both
   discovery and test execution.
-- Production projects are blocked from discovery and test runs; destructive and
-  logout actions are never executed.
+- **Production is only half-guarded** — project creation skips auto-discovery
+  for `environment = "production"` and records a `productionConfirmed`
+  acknowledgement, but per-module discovery and **test-run creation have no
+  environment check at all** (see `requirements.md` §7.18). Destructive and
+  logout actions are never executed during discovery.
 - API enforces session auth, module access, same-origin CSRF, Zod validation and
   bcrypt password hashing (cost 12).
 
@@ -381,7 +435,8 @@ Verified working end to end:
   automatic whole-site provisioning.
 - Discovery with live logs, streamed counters, masked screenshots, hard scope
   guard, and budget enforcement.
-- Application model: sessions, pages, elements, actions, state transitions.
+- Application model: sessions, pages, elements, actions, state transitions, plus
+  route patterns / page fingerprints, `ui_states` and `navigation_edges`.
 - Workflow derivation and test case generation — 23-case auth matrix, generic
   and commerce builders. Re-discovery reconciles instead of duplicating, and
   never overwrites hand-authored cases.
@@ -389,24 +444,47 @@ Verified working end to end:
   substitution and screenshot masking.
 - Test execution with pass/fail/skip, async-aware assertions, per-case
   screenshots, run totals, live polling and URL-synced run selection.
+- **Data-driven execution** (working tree): CSV-bound cases expand to one result
+  per row with `{{column}}` substitution, row numbers surfaced in the grid and
+  report.
+- **AI providers** — `mock` / `openai` / `gemini` / `grok` / `local`, redaction,
+  and three advisory call sites (page interpretation, workflow analysis, extra
+  case suggestions). Off by default.
+- **Jev** — `TYPESAFE_API_KEY` enables login assist and the irreversible-action
+  guard in discovery, and the locator fallback in execution.
+- **SSRF guard** on project base URLs, with `ALLOW_PRIVATE_TARGETS` for local
+  development.
 - Reporting: run summaries, coverage, counter-drift detection, inline evidence,
-  print/PDF, JSON export, paginated results grid, run deletion.
+  print/PDF, JSON export, paginated results grid, run deletion, and multi-format
+  export (`json | html | csv | junit`) via the report export API.
 - Health endpoint, local and S3 storage drivers, run/report/delete APIs.
+- Dark-only UI; 19 test files / 172 tests, all green.
 
 Verified **not** working (see `docs/requirements.md` for the full matrix):
-- **AI and Jev** — no Gemini provider, no Jev integration, and the `AIProvider`
-  is never invoked. Everything is deterministic today.
-- **CSV** — the parser has zero importers, dataset creation from the UI returns
-  400, and execution does not read datasets.
-- **Approval** — statuses are modelled but no UI writes them and the executor
-  ignores them.
+- **AI and Jev live calls** — wired but unverified: no `GEMINI_API_KEY`,
+  `XAI_API_KEY` or `TYPESAFE_API_KEY` configured here. Both are advisory and
+  no-op when unset (`AI_PROVIDER` defaults to `mock`).
+- **CSV binding** — the worker expands CSV rows, but nothing can set
+  `test_cases.dataset_id`: no API field, no UI. Also `KEY_VALUE` dataset saves
+  fail validation, and dataset `DELETE` removes every dataset in the module
+  (two chained `.where()` calls). The RFC 4180 parser in
+  `apps/web/lib/test-cases/csv.ts` still has zero importers and the
+  `GOTO|FILL|VERIFY` DSL has no parser.
+- **Approval** — statuses are modelled and the PATCH API works, but no UI writes
+  them and the executor ignores them.
 - **Video / trace / console logs** — no capture code at all; only screenshots.
 - **Retries, rerun-failed, parallel execution, per-case selection** — execution
   is serial with `TEST_RUN_ATTEMPTS = 1` hardcoded.
 - **Project-scoped credentials** — still module-scoped; the migration is
   approved but not done.
-- **Incremental discovery**, and the project detail page has an unfixed
-  `.length` crash.
+- **Incremental discovery** — every run is a full crawl.
+- **Coverage and findings tables** — the engines are computed and unit-tested,
+  but never called from a run, so no rows are written; `environments` is
+  likewise unread.
+- **AI / export UI** — `/api/modules/[id]/ai` and `/report/export` have no UI
+  consumer.
 - **`/storage/[...key]` is unauthenticated** — a real issue if screenshots are
   sensitive.
-- **Automated tests** — one test file in the repo, so `pnpm -r test` exits 1.
+- **`pnpm -r test` exits 1** — not a failing test: `@repo/db` declares
+  `"test": "vitest run"` with zero test files, so vitest exits 1 and pnpm
+  aborts the run. Every other workspace passes (172 tests).

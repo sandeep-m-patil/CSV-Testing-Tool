@@ -6,6 +6,7 @@ import { Printer, RotateCw } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { ModuleNav } from "@/features/modules/module-nav";
+import { ModulePageSkeleton } from "@/features/modules/module-page-states";
 import { useDiscovery, useModuleReport, useWorkflows, type DiscoveryProgress, type WorkflowRecord } from "@/features/hooks";
 import { ReportSummary } from "@/features/discovery/report/report-summary";
 import { ActionsTable, HistoryTable, PagesTable, WorkflowsList, type ReportAction, type ReportPage } from "@/features/discovery/report/report-tables";
@@ -27,10 +28,9 @@ export default function ModuleReportPage() {
 
   if (isLoading) {
     return (
-      <div className="mx-auto max-w-5xl space-y-4">
-        <Skeleton className="h-24 rounded-xl" />
+      <ModulePageSkeleton>
         <Skeleton className="h-72 rounded-xl" />
-      </div>
+      </ModulePageSkeleton>
     );
   }
 
@@ -38,23 +38,27 @@ export default function ModuleReportPage() {
   const moduleStatus = data?.module?.discoveryStatus ?? "NOT_DISCOVERED";
 
   return (
-    <div className="print-report mx-auto max-w-5xl space-y-4">
+    <div className="print-report mx-auto max-w-6xl space-y-6">
       <div className="no-print">
-        <ModuleNav moduleId={moduleId} moduleName={moduleName} status={moduleStatus} />
-        <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
-          <p className="text-sm text-muted-foreground">
-            Printable summary of the latest discovery run. Use your browser&apos;s print dialog and choose &ldquo;Save as
-            PDF&rdquo;.
-          </p>
-          <div className="flex items-center gap-2">
-            <Button variant="outline" size="sm" onClick={() => void refetch()} disabled={isFetching}>
-              <RotateCw className={`h-4 w-4 ${isFetching ? "animate-spin" : ""}`} /> Refresh
-            </Button>
-            <Button size="sm" onClick={() => window.print()}>
-              <Printer className="h-4 w-4" /> Print / Save as PDF
-            </Button>
-          </div>
-        </div>
+        <ModuleNav
+          moduleId={moduleId}
+          moduleName={moduleName}
+          status={moduleStatus}
+          actions={
+            <>
+              <Button variant="outline" onClick={() => void refetch()} disabled={isFetching}>
+                <RotateCw className={`h-4 w-4 ${isFetching ? "animate-spin" : ""}`} /> Refresh
+              </Button>
+              <Button onClick={() => window.print()}>
+                <Printer className="h-4 w-4" /> Print / Save as PDF
+              </Button>
+            </>
+          }
+        />
+        <p className="text-sm text-muted-foreground">
+          Printable summary of the latest discovery run. Use your browser&apos;s print dialog and choose &ldquo;Save as
+          PDF&rdquo;.
+        </p>
       </div>
 
       {moduleReport && <TestResultsPanel moduleId={moduleId} report={moduleReport} />}

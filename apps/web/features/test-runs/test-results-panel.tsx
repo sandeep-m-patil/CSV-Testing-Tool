@@ -70,6 +70,7 @@ export function TestResultsPanel({ moduleId, report }: Props) {
               <th className="px-3 py-2 text-right">Total</th>
               <th className="px-3 py-2 text-right">Pass</th>
               <th className="px-3 py-2 text-right">Fail</th>
+              <th className="px-3 py-2 text-right">Blocked</th>
               <th className="px-3 py-2 text-right">Skip</th>
               <th className="px-3 py-2 text-right">Shots</th>
               <th className="w-24 px-3 py-2" />
@@ -90,7 +91,7 @@ function RunRow({ moduleId, run }: { moduleId: string; run: ModuleReportRun }) {
   return (
     <tr className="border-b last:border-b-0">
       <td className="px-3 py-2">
-        <div className="font-mono text-xs">{run.id.slice(0, 8)}</div>
+        <div className="font-mono text-xs">{run.runLabel}</div>
         <div className="text-xs text-muted-foreground">{fmt(run.startedAt)}</div>
         {run.error && <div className="text-xs text-destructive">{run.error}</div>}
       </td>
@@ -102,6 +103,7 @@ function RunRow({ moduleId, run }: { moduleId: string; run: ModuleReportRun }) {
       <td className="px-3 py-2 text-right tabular-nums">{run.executed}</td>
       <td className="px-3 py-2 text-right tabular-nums text-success">{run.passed}</td>
       <td className="px-3 py-2 text-right tabular-nums text-destructive">{run.failed}</td>
+      <td className="px-3 py-2 text-right tabular-nums text-muted-foreground">{run.blocked}</td>
       <td className="px-3 py-2 text-right tabular-nums text-warning">{run.skipped}</td>
       <td className="px-3 py-2 text-right tabular-nums">{run.screenshots}</td>
       <td className="px-3 py-2">

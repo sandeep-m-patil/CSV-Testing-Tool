@@ -43,6 +43,16 @@ export type TestCase = z.infer<typeof TestCaseSchema>;
 export const UpdateTestCaseStatusInputSchema = z.object({
   status: TestCaseStatusSchema,
 });
+
+/** Review many cases at once: the listed ids, or every case currently in `fromStatus`. */
+export const BulkTestCaseStatusInputSchema = z
+  .object({
+    status: TestCaseStatusSchema,
+    ids: z.array(z.string().uuid()).max(500).optional(),
+    fromStatus: TestCaseStatusSchema.optional(),
+  })
+  .refine((value) => value.ids !== undefined || value.fromStatus !== undefined, "Provide ids or fromStatus");
+export type BulkTestCaseStatusInput = z.infer<typeof BulkTestCaseStatusInputSchema>;
 export type UpdateTestCaseStatusInput = z.infer<typeof UpdateTestCaseStatusInputSchema>;
 
 export const UpdateTestCaseInputSchema = z.object({

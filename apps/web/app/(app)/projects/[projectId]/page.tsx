@@ -1,20 +1,26 @@
-﻿"use client";
+"use client";
 
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useState } from "react";
-import { ArrowLeft, Globe, Plus, TestTube2 } from "lucide-react";
-import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { CheckCircle2, FolderKanban, FolderSearch, Gauge, Globe, Layers, Plus, X } from "lucide-react";
+import { Button, buttonVariants } from "@/components/ui/button";
+import { EmptyState } from "@/components/ui/empty-state";
+import { PageHeader } from "@/components/ui/page-header";
 import { Progress } from "@/components/ui/progress";
+import { SectionHeader } from "@/components/ui/section-header";
 import { Skeleton } from "@/components/ui/skeleton";
-import { formatDate, titleCase } from "@/lib/utils";
+import { StatCard } from "@/components/ui/stat-card";
+import { formatDate } from "@/lib/utils";
 import { useProjectDetail } from "@/features/hooks";
 import { DeleteProjectButton } from "@/features/projects/delete-project-button";
+import { EnvironmentBadge } from "@/features/projects/environment-badge";
 import { ProvisionProjectButton } from "@/features/projects/provision-project-button";
+import { ProjectModuleList } from "@/features/projects/project-module-list";
 import { ModuleForm } from "@/features/modules/module-form";
-import { discoveryStatusVariant } from "@/lib/status";
+import { CredentialsCard } from "@/features/projects/credentials-card";
+import { EnvironmentsCard } from "@/features/projects/environments-card";
+import { RolesCard } from "@/features/projects/roles-card";
 
 export default function ProjectDetailPage() {
   const params = useParams<{ projectId: string }>();
@@ -22,121 +28,83 @@ export default function ProjectDetailPage() {
   const { data, isLoading } = useProjectDetail(projectId);
   const [addingModule, setAddingModule] = useState(false);
 
-  if (isLoading) {
-    return (
-      <div className="mx-auto max-w-6xl space-y-6">
-        <Skeleton className="h-8 w-64" />
-        <Skeleton className="h-32 rounded-xl" />
-      </div>
-    );
-  }
-
-  if (!data?.project) {
-    return <ProjectMissing />;
-  }
+  if (isLoading) return <ProjectDetailSkeleton />;
+  if (!data?.project) return <ProjectMissing />;
 
   const { project, modules } = data;
-  const discoveredModules = modules.filter((module) => module.discoveryStatus === "DISCOVERED");
+  const discoveredCount = modules.filter((module) => module.discoveryStatus === "DISCOVERED").length;
+  const progress = moduleProgress(modules);
 
   return (
     <div className="mx-auto max-w-6xl space-y-8">
-      <div className="flex flex-wrap items-center justify-between gap-4">
-        <div className="flex items-center gap-3">
-          <Link href="/projects" className="text-muted-foreground hover:text-foreground" aria-label="Back to projects">
-            <ArrowLeft className="h-5 w-5" />
-          </Link>
-          <div>
-            <h1 className="text-2xl font-semibold tracking-tight">{project.name}</h1>
-            <p className="text-sm text-muted-foreground">
-              {project.description || "No description"} · Created {formatDate(project.createdAt)}
+      <PageHeader
+        breadcrumbs={[{ label: "Projects", href: "/projects" }, { label: project.name }]}
+        icon={<FolderKanban />}
+        title={project.name}
+        meta={<EnvironmentBadge environment={project.environment} />}
+        description={
+          <div className="space-y-1">
+            <p>{project.description || "No description"}</p>
+            <p className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs">
+              <span className="inline-flex min-w-0 items-center gap-1.5 font-mono">
+                <Globe className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+                <span className="break-all">{project.baseUrl}</span>
+              </span>
+              <span>Created {formatDate(project.createdAt)}</span>
             </p>
           </div>
-        </div>
-        <div className="flex items-center gap-2">
-          <ProvisionProjectButton projectId={projectId} />
-          <Button onClick={() => setAddingModule((value) => !value)}>
-            <Plus className="h-4 w-4" />
-            Add Module
-          </Button>
-          <DeleteProjectButton projectId={projectId} projectName={project.name} redirectTo="/projects" />
-        </div>
+        }
+        actions={
+          <>
+            <ProvisionProjectButton projectId={projectId} />
+            <Button
+              variant={addingModule ? "secondary" : "default"}
+              onClick={() => setAddingModule((value) => !value)}
+              aria-expanded={addingModule}
+            >
+              {addingModule ? <X className="h-4 w-4" /> : <Plus className="h-4 w-4" />}
+              {addingModule ? "Cancel" : "Add module"}
+            </Button>
+            <DeleteProjectButton projectId={projectId} projectName={project.name} redirectTo="/projects" />
+          </>
+        }
+      />
+
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
+        <StatCard label="Modules" value={modules.length} icon={<Layers />} hint="Areas of the app under test" />
+        <StatCard
+          label="Discovered"
+          value={`${discoveredCount}/${modules.length}`}
+          icon={<CheckCircle2 />}
+          hint={`${modules.length - discoveredCount} still to discover`}
+        />
+        <StatCard
+          className="col-span-2 sm:col-span-1"
+          label="Discovery progress"
+          value={`${progress}%`}
+          icon={<Gauge />}
+          hint={<Progress value={progress} className="mt-2 h-1.5" aria-label="Modules discovered" />}
+        />
       </div>
 
-      <Card>
-        <CardContent className="flex flex-wrap items-center gap-4 p-4 text-sm">
-          <span className="flex items-center gap-2 text-muted-foreground">
-            <Globe className="h-4 w-4" />
-            {project.baseUrl}
-          </span>
-          <Badge variant={environmentBadgeVariant(project.environment)}>{titleCase(project.environment)}</Badge>
-        </CardContent>
-      </Card>
-
-      {addingModule && (
-        <ModuleForm projectId={projectId} onDone={() => setAddingModule(false)} />
-      )}
-
-      <div className="grid gap-4 sm:grid-cols-2">
-        <MetricCard label="Modules" value={modules.length} />
-        <MetricCard label="Discovered" value={`${discoveredModules.length}/${modules.length}`} />
-      </div>
-
-      <section>
-        <h2 className="mb-3 text-lg font-semibold">Modules</h2>
-        {modules.length === 0 && (
-          <Card className="border-dashed">
-            <CardContent className="p-8 text-center text-sm text-muted-foreground">
-              No modules yet. Add your first module to start discovery.
-            </CardContent>
-          </Card>
-        )}
-        {modules.length > 0 && (
-          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-            {modules.map((module) => (
-              <Link key={module.id} href={`/modules/${module.id}`}>
-                <Card className="h-full transition-shadow hover:shadow-md">
-                  <CardContent className="flex items-center justify-between gap-3 p-4">
-                    <div className="flex items-center gap-3">
-                      <div className="flex h-8 w-8 items-center justify-center rounded-md bg-muted">
-                        <TestTube2 className="h-4 w-4 text-foreground" />
-                      </div>
-                      <div>
-                        <p className="text-sm font-medium">{module.name}</p>
-                        <p className="text-xs text-muted-foreground">{module.startPath || "/"}</p>
-                      </div>
-                    </div>
-                    <Badge variant={discoveryStatusVariant(module.discoveryStatus)}>{module.discoveryStatus}</Badge>
-                  </CardContent>
-                </Card>
-              </Link>
-            ))}
-          </div>
-        )}
+      <section className="space-y-4" aria-labelledby="modules-heading">
+        <SectionHeader title={<span id="modules-heading">Modules</span>} description="Open a module to configure it, run discovery and review generated tests." />
+        {addingModule && <ModuleForm projectId={projectId} onDone={() => setAddingModule(false)} />}
+        <ProjectModuleList modules={modules} />
       </section>
 
-      {modules.length > 0 && (
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-base">Discovery progress</CardTitle>
-            <CardDescription>{moduleProgress(modules)}% of modules discovered.</CardDescription>
-          </CardHeader>
-          <CardContent>
-            <Progress value={moduleProgress(modules)} className="bg-muted" />
-          </CardContent>
-        </Card>
-      )}
+      <section className="space-y-4" aria-labelledby="configuration-heading">
+        <SectionHeader
+          title={<span id="configuration-heading">Configuration</span>}
+          description="Environments, application roles and credentials shared by every module in this project."
+        />
+        <div className="grid gap-4 lg:grid-cols-2">
+          <EnvironmentsCard projectId={projectId} />
+          <RolesCard projectId={projectId} />
+        </div>
+        <CredentialsCard projectId={projectId} />
+      </section>
     </div>
-  );
-}
-
-function MetricCard({ label, value }: { label: string; value: number | string }) {
-  return (
-    <Card>
-      <CardContent className="p-4">
-        <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">{label}</p>
-        <p className="mt-1 text-2xl font-semibold">{value}</p>
-      </CardContent>
-    </Card>
   );
 }
 
@@ -146,23 +114,37 @@ function moduleProgress(modules: Array<{ discoveryStatus: string }>): number {
   return Math.round((discovered / modules.length) * 100);
 }
 
-function environmentBadgeVariant(environment: string): "success" | "warning" | "destructive" | "muted" {
-  if (environment === "production") return "destructive";
-  if (environment === "staging") return "warning";
-  if (environment === "qa") return "success";
-  return "muted";
+function ProjectDetailSkeleton() {
+  return (
+    <div className="mx-auto max-w-6xl space-y-8" aria-busy="true">
+      <div className="space-y-3">
+        <Skeleton className="h-3 w-32" />
+        <Skeleton className="h-8 w-64" />
+        <Skeleton className="h-4 w-96 max-w-full" />
+      </div>
+      <div className="grid gap-3 sm:grid-cols-3">
+        <Skeleton className="h-24 rounded-xl" />
+        <Skeleton className="h-24 rounded-xl" />
+        <Skeleton className="h-24 rounded-xl" />
+      </div>
+      <Skeleton className="h-48 rounded-xl" />
+    </div>
+  );
 }
 
 function ProjectMissing() {
   return (
-    <div className="mx-auto max-w-md py-20 text-center">
-      <h1 className="text-xl font-semibold">Project not found</h1>
-      <p className="mt-2 text-sm text-muted-foreground">
-        It may have been deleted or you don&apos;t have access to it.
-      </p>
-      <Link href="/projects" className="mt-4 inline-block">
-        <Button variant="outline">Back to projects</Button>
-      </Link>
+    <div className="mx-auto max-w-lg py-16">
+      <EmptyState
+        icon={<FolderSearch />}
+        title="Project not found"
+        description="It may have been deleted or you don't have access to it."
+        action={
+          <Link href="/projects" className={buttonVariants({ variant: "outline" })}>
+            Back to projects
+          </Link>
+        }
+      />
     </div>
   );
 }

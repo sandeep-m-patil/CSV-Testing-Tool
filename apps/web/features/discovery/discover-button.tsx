@@ -9,9 +9,24 @@ import { apiFetch } from "@/lib/api-client";
 import { queryKeys } from "@/lib/query-keys";
 import { errorToast } from "@/lib/mutation";
 import { Button } from "@/components/ui/button";
-import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from "@/components/ui/dialog";
 
-export function DiscoverModuleButton({ moduleId, moduleName }: { moduleId: string; moduleName: string }) {
+interface DiscoverModuleButtonProps {
+  moduleId: string;
+  moduleName: string;
+  /** Visual weight of the trigger; `default` when discovery is the page's primary action. */
+  variant?: "default" | "secondary" | "outline";
+}
+
+export function DiscoverModuleButton({ moduleId, moduleName, variant = "secondary" }: DiscoverModuleButtonProps) {
   const [open, setOpen] = useState(false);
   const [running, setRunning] = useState(false);
   const router = useRouter();
@@ -42,7 +57,7 @@ export function DiscoverModuleButton({ moduleId, moduleName }: { moduleId: strin
   return (
     <Dialog open={open} onOpenChange={setOpen}>
       <DialogTrigger asChild>
-        <Button size="sm" variant="secondary">
+        <Button variant={variant}>
           <Radar className="h-4 w-4" />
           Discover
         </Button>
@@ -55,14 +70,15 @@ export function DiscoverModuleButton({ moduleId, moduleName }: { moduleId: strin
             and generate candidate test cases. You&apos;ll be taken to the live progress screen.
           </DialogDescription>
         </DialogHeader>
-        <div className="flex justify-end gap-2">
+        <DialogFooter>
           <Button variant="outline" onClick={() => setOpen(false)} disabled={running}>
             Cancel
           </Button>
           <Button onClick={() => void start()} disabled={running}>
+            <Radar className="h-4 w-4" />
             {running ? "Queuing…" : "Start discovery"}
           </Button>
-        </div>
+        </DialogFooter>
       </DialogContent>
     </Dialog>
   );

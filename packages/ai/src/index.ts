@@ -6,3 +6,5 @@ export * from "./gemini";
 export * from "./grok";
 export * from "./local";
 export * from "./factory";
+export * from "./jev";
+export * from "./test-case-task";

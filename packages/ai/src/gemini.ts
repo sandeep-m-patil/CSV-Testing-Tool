@@ -3,10 +3,13 @@ import {
   AiWorkflowAnalysisSchema,
   type AiPageContext,
   type AiPageInterpretation,
+  type AiTestCaseContext,
+  type AiTestCaseSuggestions,
   type AiWorkflowAnalysis,
 } from "@repo/schemas";
 import type { AIProvider } from "./types";
 import { sanitizePageContext } from "./sanitize";
+import { buildTestCaseTask, parseTestCaseSuggestions } from "./test-case-task";
 
 export interface GeminiOptions {
   apiKey: string;
@@ -19,6 +22,8 @@ export interface GeminiOptions {
 const API_VERSION = "v1beta";
 const DEFAULT_BASE_URL = `https://generativelanguage.googleapis.com/${API_VERSION}`;
 const DEFAULT_TEMPERATURE = 0.1;
+/** Slightly higher than classification: case generation benefits from variety. */
+const CASE_GENERATION_TEMPERATURE = 0.3;
 const MAX_ERROR_BODY = 300;
 
 /**
@@ -41,7 +46,11 @@ interface GeminiGenerateResponse {
   candidates?: Array<{ content?: { parts?: Array<{ text?: string }> } }>;
 }
 
-async function generateJson(options: GeminiOptions, task: unknown): Promise<unknown> {
+async function generateJson(
+  options: GeminiOptions,
+  task: unknown,
+  temperature: number = DEFAULT_TEMPERATURE,
+): Promise<unknown> {
   const fetcher = options.fetcher ?? fetch;
   const baseUrl = (options.baseUrl ?? DEFAULT_BASE_URL).replace(/\/$/, "");
   const response = await fetcher(
@@ -56,7 +65,7 @@ async function generateJson(options: GeminiOptions, task: unknown): Promise<unkn
         systemInstruction: { parts: [{ text: SYSTEM_PROMPT }] },
         contents: [{ role: "user", parts: [{ text: JSON.stringify(task) }] }],
         generationConfig: {
-          temperature: DEFAULT_TEMPERATURE,
+          temperature,
           responseMimeType: "application/json",
         },
       }),
@@ -110,5 +119,10 @@ export class GeminiProvider implements AIProvider {
       output: "name, purpose, workflows[{name, steps[string]}]",
     });
     return AiWorkflowAnalysisSchema.parse(raw);
+  }
+
+  async generateTestCases(context: AiTestCaseContext): Promise<AiTestCaseSuggestions> {
+    const raw = await generateJson(this.options, buildTestCaseTask(context), CASE_GENERATION_TEMPERATURE);
+    return parseTestCaseSuggestions(raw);
   }
 }

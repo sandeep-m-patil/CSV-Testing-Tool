@@ -11,7 +11,9 @@ import { apiFetch } from "@/lib/api-client";
 import { errorToast } from "@/lib/mutation";
 import { queryKeys } from "@/lib/query-keys";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { TestTube2 } from "lucide-react";
+import { Card, CardContent } from "@/components/ui/card";
+import { IconCardHeader } from "@/components/ui/icon-card-header";
 import { FormFieldError } from "@/components/ui/form";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -76,24 +78,36 @@ export function ModuleForm({ projectId, onDone }: { projectId: string; onDone?: 
   }
 
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle className="text-lg">Module details</CardTitle>
-        <CardDescription>Modules are the areas of the project you want to test — e.g. Login, Checkout, Material Review.</CardDescription>
-      </CardHeader>
+    <Card className="border-brand/30">
+      <IconCardHeader
+        icon={<TestTube2 />}
+        title="New module"
+        description="Modules are the areas of the project you want to test — e.g. Login, Checkout, Material Review."
+      />
       <CardContent>
         <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
-          <div className="space-y-2">
-            <Label htmlFor="module-name">Name</Label>
-            <Input id="module-name" placeholder="Material Management" {...register("name")} />
-            <FormFieldError error={errors.name} touched={touchedFields.name} />
-          </div>
-          <div className="space-y-2">
-            <Label htmlFor="module-description">Description</Label>
-            <Textarea id="module-description" placeholder="Create and manage laboratory materials…" {...register("description")} />
+          <div className="grid gap-4 md:grid-cols-2">
+            <div className="space-y-2">
+              <Label htmlFor="module-name">Name</Label>
+              <Input id="module-name" placeholder="Material Management" {...register("name")} />
+              <FormFieldError error={errors.name} touched={touchedFields.name} />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="module-description">
+                Description <span className="font-normal text-muted-foreground">(optional)</span>
+              </Label>
+              <Textarea
+                id="module-description"
+                rows={1}
+                className="min-h-9"
+                placeholder="Create and manage laboratory materials…"
+                {...register("description")}
+              />
+            </div>
           </div>
 
-          <div className="space-y-2 rounded-lg border bg-muted/10 p-3">
+          <fieldset className="grid gap-4 rounded-lg border bg-muted/20 p-4 md:grid-cols-2">
+            <legend className="px-1 text-xs font-medium text-muted-foreground">Discovery scope</legend>
             <div className="space-y-2">
               <Label htmlFor="module-start-path">Start path</Label>
               <Input
@@ -126,9 +140,9 @@ export function ModuleForm({ projectId, onDone }: { projectId: string; onDone?: 
                 Comma-separated. Links to anything else (other modules) are listed as skipped, never crawled.
               </p>
             </div>
-          </div>
+          </fieldset>
 
-          <div className="flex justify-end gap-2">
+          <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
             {!onDone && (
               <Button type="button" variant="outline" onClick={() => router.back()}>
                 Cancel

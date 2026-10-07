@@ -1,6 +1,7 @@
 import type { Page } from "playwright";
 import type { Expectation } from "./types";
 import { resolveLocator } from "./locators";
+import { evaluateElementExpectation } from "./element-assertions";
 import { CRASH_TEXT_PATTERN, ERROR_SELECTORS, ERROR_TEXT_PATTERN } from "../test-generation/scenario-data";
 
 /**
@@ -102,6 +103,8 @@ async function checkElementVisible(page: Page, target: string): Promise<Assertio
 }
 
 export async function evaluateExpectation(page: Page, expect: Expectation): Promise<AssertionOutcome> {
+  const elementOutcome = await evaluateElementExpectation(page, expect);
+  if (elementOutcome) return elementOutcome;
   switch (expect.kind) {
     case "navigated_away":
       return checkNavigatedAway(page, expect.fromUrl);
@@ -128,5 +131,14 @@ export async function evaluateExpectation(page: Page, expect: Expectation): Prom
       }
       return { isSatisfied: false, detail: reasons.join("; ") };
     }
+    case "all_of": {
+      for (const option of expect.options) {
+        const outcome = await evaluateExpectation(page, option);
+        if (!outcome.isSatisfied) return outcome;
+      }
+      return SATISFIED;
+    }
+    default:
+      return { isSatisfied: false, detail: `unsupported expectation: ${expect.kind}` };
   }
 }

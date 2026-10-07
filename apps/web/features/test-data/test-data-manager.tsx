@@ -2,13 +2,16 @@
 
 import { useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
-import { Database, Plus, Trash2 } from "lucide-react";
+import { Database, FileSpreadsheet, ListTree, Plus } from "lucide-react";
 import { toast } from "sonner";
 import { apiFetch } from "@/lib/api-client";
 import { queryKeys } from "@/lib/query-keys";
 import { errorToast } from "@/lib/mutation";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent } from "@/components/ui/card";
+import { DeleteIconButton } from "@/components/ui/delete-icon-button";
+import { EmptyState } from "@/components/ui/empty-state";
+import { IconCardHeader } from "@/components/ui/icon-card-header";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
@@ -26,21 +29,24 @@ export interface TestDataSetRow {
 export function TestDataManager({ moduleId, initial }: { moduleId: string; initial?: TestDataSetRow[] }) {
   return (
     <Card>
-      <CardHeader>
-        <CardTitle className="flex items-center gap-2 text-base">
-          <Database className="h-4 w-4 text-primary" />
-          Test data
-        </CardTitle>
-        <CardDescription>
-          Reusable datasets scoped to this module — key/value constants and CSV templates for multi-row scenarios.
-        </CardDescription>
-      </CardHeader>
+      <IconCardHeader
+        icon={<Database />}
+        title="Test data"
+        description="Reusable datasets scoped to this module — key/value constants and CSV templates for multi-row scenarios."
+        aside={initial ? <Badge variant="muted">{initial.length}</Badge> : null}
+      />
       <CardContent className="space-y-4">
         {!initial && <Skeleton className="h-20 rounded-lg" />}
-        {initial && initial.length === 0 && <p className="text-sm text-muted-foreground">No datasets yet.</p>}
-        {initial?.map((dataset) => (
-          <DataSetRowView key={dataset.id} dataset={dataset} moduleId={moduleId} />
-        ))}
+        {initial && initial.length === 0 && (
+          <EmptyState size="compact" icon={<Database />} title="No datasets yet" description="Add one below to drive form filling." />
+        )}
+        {initial && initial.length > 0 && (
+          <ul className="divide-y rounded-lg border">
+            {initial.map((dataset) => (
+              <DataSetRowView key={dataset.id} dataset={dataset} moduleId={moduleId} />
+            ))}
+          </ul>
+        )}
         <AddDataSetForm moduleId={moduleId} />
       </CardContent>
     </Card>
@@ -49,9 +55,9 @@ export function TestDataManager({ moduleId, initial }: { moduleId: string; initi
 
 function DataSetRowView({ dataset, moduleId }: { dataset: TestDataSetRow; moduleId: string }) {
   const queryClient = useQueryClient();
+  const isCsv = dataset.dataType === "CSV_TEMPLATE";
 
   async function remove() {
-    if (!confirm(`Delete dataset "${dataset.name}"?`)) return;
     try {
       await apiFetch(`/api/modules/${moduleId}/test-data?id=${dataset.id}`, { method: "DELETE" });
       toast.success("Dataset deleted");
@@ -62,17 +68,18 @@ function DataSetRowView({ dataset, moduleId }: { dataset: TestDataSetRow; module
   }
 
   return (
-    <div className="flex items-center justify-between gap-3 rounded-lg border bg-muted/20 p-3">
-      <div className="min-w-0">
-        <p className="text-sm font-medium">{dataset.name}</p>
-        <Badge variant="muted" className="mt-1">
-          {dataset.dataType === "CSV_TEMPLATE" ? "CSV template" : "Key/value"}
-        </Badge>
+    <li className="flex items-center justify-between gap-3 px-3 py-2.5">
+      <div className="flex min-w-0 items-center gap-3">
+        <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md border bg-muted/60 text-muted-foreground">
+          {isCsv ? <FileSpreadsheet className="h-4 w-4" aria-hidden="true" /> : <ListTree className="h-4 w-4" aria-hidden="true" />}
+        </span>
+        <div className="min-w-0">
+          <p className="truncate text-sm font-medium">{dataset.name}</p>
+          <p className="text-xs text-muted-foreground">{isCsv ? "CSV template" : "Key/value"}</p>
+        </div>
       </div>
-      <Button variant="ghost" size="icon" aria-label={`Delete ${dataset.name}`} onClick={() => void remove()}>
-        <Trash2 className="h-4 w-4 text-muted-foreground" />
-      </Button>
-    </div>
+      <DeleteIconButton entityName={dataset.name} entityLabel="dataset" onConfirm={remove} />
+    </li>
   );
 }
 
@@ -160,9 +167,10 @@ function AddDataSetForm({ moduleId }: { moduleId: string }) {
   }
 
   return (
-    <form onSubmit={submit} className="space-y-3 rounded-lg border border-dashed p-3">
+    <form onSubmit={submit} className="space-y-3 rounded-lg border bg-muted/20 p-4">
+      <p className="text-sm font-medium">New dataset</p>
       <div className="space-y-1.5">
-        <Label htmlFor={`ds-name-${moduleId}`} className="text-xs">
+        <Label htmlFor={`ds-name-${moduleId}`} className="text-xs text-muted-foreground">
           Dataset name
         </Label>
         <Input
@@ -182,7 +190,7 @@ function AddDataSetForm({ moduleId }: { moduleId: string }) {
           <TabsTrigger value="CSV_TEMPLATE">CSV template</TabsTrigger>
         </TabsList>
         <TabsContent value="KEY_VALUE" className="space-y-2">
-          <Label className="text-xs">One item per line: key=value</Label>
+          <Label className="text-xs text-muted-foreground">One item per line: key=value</Label>
           <Textarea
             data-testid="testdata-keyvalues"
             rows={5}
@@ -193,7 +201,7 @@ function AddDataSetForm({ moduleId }: { moduleId: string }) {
           />
         </TabsContent>
         <TabsContent value="CSV_TEMPLATE" className="space-y-2">
-          <Label className="text-xs">Upload a .csv file or paste rows with a header</Label>
+          <Label className="text-xs text-muted-foreground">Upload a .csv file or paste rows with a header</Label>
           <Textarea
             data-testid="testdata-csv"
             rows={4}
@@ -202,12 +210,12 @@ function AddDataSetForm({ moduleId }: { moduleId: string }) {
             onChange={(event) => setCsv(event.target.value)}
             className="font-mono text-xs"
           />
-          <Input type="file" accept=".csv,text/csv" onChange={handleFile} className="text-xs" />
+          <Input type="file" accept=".csv,text/csv" aria-label="Upload CSV file" onChange={handleFile} className="cursor-pointer text-xs" />
           {fileError && <p className="text-xs text-destructive">{fileError}</p>}
         </TabsContent>
       </Tabs>
       <div className="flex justify-end">
-        <Button type="submit" size="sm" disabled={submitting || (dataType === "CSV_TEMPLATE" && !csv.trim())}>
+        <Button type="submit" disabled={submitting || (dataType === "CSV_TEMPLATE" && !csv.trim())}>
           <Plus className="h-4 w-4" />
           {submitting ? "Saving…" : "Save dataset"}
         </Button>

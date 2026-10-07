@@ -34,7 +34,9 @@ Discover pages / elements / flows
         ↓
 APPLICATION MODEL                       ← structured, NOT raw HTML
         ↓
-Gemini AI                               ← generates logical test cases (NOT INTEGRATED)
+Gemini AI                               ← advisory: page intent + extra case
+                                          suggestions. OFF unless AI_PROVIDER
+                                          is set to a real provider.
         ↓
 Generate Test Cases
         ↓
@@ -48,7 +50,8 @@ TEST EXECUTION ENGINE
         ↓                               ↓
 Jev Ultrafast                    Playwright
 dynamic target help             actual browser
-(NOT INTEGRATED)                        │
+(wired, advisory; no-op           │
+ unless TYPESAFE_API_KEY)         │
         └───────────────┬───────────────┘
                         ↓
                   Assertions
@@ -103,7 +106,7 @@ Project
 | 2.3 | Module has its own discovery status and lifecycle | **DONE** | `modules.discovery_status`, `modules.status`. |
 | 2.4 | Per-module path scoping | **DONE** | `modules.start_path`, `include_paths` jsonb. |
 | 2.5 | `Application` entity between Project and Module | **DONE (removed)** | Intentionally flattened. Docs referencing it were stale and are fixed. |
-| 2.6 | `Environments` lookup table | **MISSING** | `environment` is a `varchar(24)` column on `projects`, not an entity. No per-environment config or run tagging. |
+| 2.6 | `Environments` lookup table | **STUB** | The `environments` table exists (migration `0013`) but **no code reads or writes it**; `test_runs.environment_id` is never populated. Per-environment config and run tagging still do not exist. |
 
 ---
 
@@ -134,7 +137,7 @@ Modules
 | 3.2 | Passwords never returned by the API | **DONE** | Passwords read only worker-side. |
 | 3.3 | Passwords never logged | **DONE** | Secrets are masked in screenshots via `maskSensitiveInputs`; never logged. |
 | 3.4 | Passwords never persisted in test-case steps | **DONE** | Steps store `{{username}}`/`{{password}}`; executor substitutes at run time. Verified: no real secret in DB. |
-| 3.5 | Passwords never sent to an AI provider | **DONE (vacuous)** | No AI provider is invoked at all today. **Becomes load-bearing the moment Gemini is wired.** |
+| 3.5 | Passwords never sent to an AI provider | **DONE** | `packages/ai/src/sanitize.ts` redacts credential-shaped values inside every provider and at the worker/web boundaries. Live calls remain unverified (no keys). |
 | 3.6 | Passwords never in reports | **DONE** | Reports carry storage keys, not secrets. |
 | 3.7 | Credentials never committed to source control | **DONE** | `.env` files hold secrets; confirm `.gitignore` covers them. |
 | 3.8 | AI credentials via environment variables | **DONE** | `OPENAI_API_KEY` etc. in env schema. |
@@ -161,7 +164,7 @@ Modules
 | 4.7 | Bounded crawl (pages, steps, depth, timeout) | **DONE** | All four budgeted via env. |
 | 4.8 | Non-blocking on unreachable app | **DONE** | Budgets + timeout; partial results retained. |
 | 4.9 | Module membership not decided by URL name alone | **DONE** | Membership by module scope + include paths + navigation. |
-| 4.10 | AI-assisted page→module classification | **STUB** | `AIProvider.interpretPage` exists, never called. |
+| 4.10 | AI-assisted page→module classification | **PARTIAL** | `interpretPageWithFallback` runs per discovered page and persists `ai_page_type/ai_purpose/…`, but the insight is **advisory metadata** — module membership is still decided by scope + include paths + navigation, not by the model. |
 | 4.11 | Incremental discovery | **MISSING** | Every run is a full crawl. |
 | 4.12 | Diff new / removed / changed pages & elements | **MISSING** | No comparison against prior session. |
 | 4.13 | Rediscover single module | **DONE** | Via §4.3. |
@@ -179,12 +182,12 @@ Modules
 | 5.4 | Stable per-module test codes | **DONE** | `test_cases.code`, unique per module. |
 | 5.5 | Avoid duplicates on re-discovery | **DONE** | Name-keyed dedup. |
 | 5.6 | Re-discovery **refreshes** stale generated cases | **DONE** | Reconcile path; only `source = 'generated'` rows are rewritten, so hand-authored cases are never overwritten. |
-| 5.7 | AI-generated test cases | **STUB** | `AIProvider` seam exists; **Gemini provider absent**, no call sites. |
+| 5.7 | AI-generated test cases | **DONE** | `generateTestCases` calls `createAiCaseGenerator` (ai-generation.ts) per page: up to 10 pages/run, 45s timeout, suggestions grounded on discovered elements, stored with `source = "ai"`. Advisory and best-effort — skipped entirely when `AI_PROVIDER=mock`, and an outage logs and continues. Live calls unverified. |
 | 5.8 | User selects generation categories | **MISSING** | No category picker. |
 | 5.9 | Generate for all / one module / one page | **PARTIAL** | Per-module yes. All-modules and per-page not exposed. |
 | 5.10 | Regenerate / generate additional cases | **PARTIAL** | Reconcile updates; "additional" not modelled. |
 | 5.11 | Approved cases used as generation context | **MISSING** | Nothing is ever approved (§7). |
-| 5.12 | AI output schema-validated before save | **PARTIAL** | Zod schemas exist in `packages/schemas`; unused by any generator. |
+| 5.12 | AI output schema-validated before save | **DONE** | Schemas in `packages/schemas` are `.parse()`d by every adapter (`AiPageInterpretationSchema`, `AiWorkflowAnalysisSchema`, `parseTestCaseSuggestions`); see §12.9. |
 
 ---
 
@@ -252,20 +255,22 @@ Modules
 
 | # | Requirement | Status | Notes |
 | --- | --- | --- | --- |
-| 9.1 | RFC 4180 parser | **DEAD** | `apps/web/lib/test-cases/csv.ts` — **zero importers**. |
+| 9.1 | RFC 4180 parser | **DONE (server-side)** | `packages/schemas/src/test-data.ts` (`normaliseTestDataSetInput`) parses on upload. The legacy client parser `apps/web/lib/test-cases/csv.ts` is **DEAD — zero importers** and redundant. |
 | 9.2 | CSV serialiser | **DEAD** | Same file. |
 | 9.3 | Dataset storage | **DONE** | `test_data_sets`, jsonb `data`. |
-| 9.4 | Dataset API | **DONE** | CRUD route exists. |
-| 9.5 | **Dataset creation works from the UI** | **MISSING** | Client sends `{name, dataType, csv}`; server validates `{name, data:{type, columns, rows}}` → **HTTP 400**. The feature cannot be used. |
-| 9.6 | **CSV drives test execution** | **MISSING** | `loadCases()` never reads a dataset. |
-| 9.7 | One execution per CSV row, linked to its case | **MISSING** | No row linkage on results. |
-| 9.8 | Stable `TC_ID` column matching | **MISSING** | `test_cases.code` exists and is ideal for this. |
-| 9.9 | Datasets linked to test cases / runs | **MISSING** | `test_data_sets` has no FK to any execution entity. |
+| 9.4 | Dataset API | **DONE** | CRUD route exists. ⚠️ `DELETE /api/modules/[id]/test-data?id=…` chains two `.where()` calls; drizzle *assigns* (does not AND) them, so effective WHERE is `module_id = ?` — it deletes **every dataset in the module**. |
+| 9.5 | **Dataset creation works from the UI** | **PARTIAL** | **CSV works**: the client's `{name, dataType: "csv", csv}` now matches the server schema; rows are parsed server-side and a header-only CSV is rejected with 400. **KEY_VALUE is broken**: the client sends `keyValues` as an object but the schema expects a string → 400. |
+| 9.6 | **CSV drives test execution** | **PARTIAL** | Wired: `processor.ts` calls `expandCases()` (`data-driven.ts`), so a case bound to a dataset runs once per row with `{{column}}` substitution. But nothing can bind a case: `UpdateTestCaseInputSchema` has no `datasetId`, generated cases never set it, and there is no UI — binding requires **direct SQL**. |
+| 9.7 | One execution per CSV row, linked to its case | **DONE** | `test_run_results.dataset_id` + `dataset_row` written per row; grid and report show a `row N` badge and the row's values in `testData`. |
+| 9.8 | Stable `TC_ID` column matching | **MISSING** | `test_cases.code` exists and is the obvious key; no matching layer uses it. |
+| 9.9 | Datasets linked to test cases / runs | **PARTIAL** | FKs exist (`test_cases.dataset_id`, `test_run_results.dataset_id`) and the worker writes them, but no API/UI can set `test_cases.dataset_id`. |
 | 9.10 | No static test file generated per row | **DONE (by absence)** | Correct by design. |
-| 9.11 | CSV validated on upload | **MISSING** | UI only checks `text.includes(",")`. Quoted fields with commas corrupt the dataset. |
+| 9.11 | CSV validated on upload | **PARTIAL** | Server-side validation is real (RFC 4180, header + ≥1 row required). The UI only checks `text.includes(",")`, so quoted fields are fine server-side but the client has no preview/error. |
 
-> §9 is currently a façade: the one real implementation is unreachable, and the
-> shipped path is broken.
+> §9 the state of play: the executor expansion is implemented and unit-tested
+> (11 tests), but the only way to link a case to a dataset is raw SQL, and the
+> `KEY_VALUE` save path is broken. These two gaps — not the executor — are what
+> make the feature unusable end to end today.
 
 ---
 
@@ -284,7 +289,8 @@ Modules
 | 10.9 | Trace / video / log viewers | **MISSING** | Nothing to view (§8). |
 | 10.10 | Filter by project / module / status / run / browser / date / credential / CSV row | **PARTIAL** | Module + run + status only. |
 | 10.11 | Project-level and cross-run reporting | **MISSING** | Reporting is module-scoped. |
-| 10.12 | JSON export | **DONE** | Test-runs page. |
+| 10.12 | JSON export | **DONE** | Test-runs page ("Download JSON" serialises the open run client-side). |
+| 10.13 | Multi-format export (JSON/HTML/CSV/JUnit) | **PARTIAL** | `GET /api/modules/[id]/report/export?format=json|html|csv|junit` — session + module guarded, capped at 50 runs, flattened one row per case for CSV/JUnit. **API-only: no UI links to it.** 10 tests in `apps/web/lib/report-export.test.ts`. |
 
 ---
 
@@ -305,51 +311,63 @@ Modules
 
 | # | Requirement | Status | Notes |
 | --- | --- | --- | --- |
-| 12.1 | Provider abstraction (`AIProvider`) | **DONE** | `packages/ai`. |
-| 12.2 | Provider factory | **DONE** | `mock` / `openai` / `local`. |
-| 12.3 | Deterministic fallback provider | **DONE** | `MockProvider` — regex heuristics, no network. |
+| 12.1 | Provider abstraction (`AIProvider`) | **DONE** | `packages/ai`, three methods: `interpretPage`, `analyzeWorkflows`, `generateTestCases`. |
+| 12.2 | Provider factory | **DONE** | `createAIProvider` selects `mock / openai / gemini / grok / local`; missing key for the chosen provider throws a descriptive error; default is `mock`. |
+| 12.3 | Deterministic fallback provider | **DONE** | `MockProvider` — regex heuristics, no network. Every AI call site short-circuits when the provider is `mock`, so `AI_PROVIDER=openai` now **does** change behaviour (unlike before). |
 | 12.4 | OpenAI-compatible adapter | **DONE** | Raw `fetch`, no SDK dependency. |
-| 12.5 | **Gemini provider** | **MISSING** | No `gemini` / `@google/genai` / `GEMINI_API_KEY` anywhere. Clean drop-in via §12.1. |
-| 12.6 | **Provider actually invoked** | **MISSING** | Constructed at `runner.ts:107`; only `.label` is read. `interpretPage` / `analyzeWorkflows` have **zero call sites**. |
-| 12.7 | AI never required for the pipeline | **DONE** | Whole system runs with no AI. |
-| 12.8 | AI never receives secrets | **DONE (vacuous)** | Becomes load-bearing with §12.5. Placeholders `{{username}}`/`{{password}}` already exist in step data. |
-| 12.9 | AI output schema-validated | **PARTIAL** | Zod schemas exist; not enforced on any path. |
-| 12.10 | AI failure cannot crash the app | **DONE** | No AI is called, so nothing can throw. |
-| 12.11 | Web app can request generation | **MISSING** | `@repo/ai` in `transpilePackages` but not a dependency; no web route. |
+| 12.5 | **Gemini provider** | **DONE** | `packages/ai/src/gemini.ts`, hand-rolled REST (`generateContent` + `responseMimeType: application/json`), gated by `GEMINI_API_KEY`, default model `gemini-2.5-flash`. **Live calls unverified** — the adapter is unit-tested against mocked `fetch`. |
+| 12.6 | **Provider actually invoked** | **DONE** | Three wiring points, all advisory: `interpretPageWithFallback` per discovered page (`runner.ts:456`), `enrichWithAiAnalysis` after workflow build (`builder.ts:142`, log-only), and `createAiCaseGenerator` during test generation (`generator.ts:39`). |
+| 12.7 | AI never required for the pipeline | **DONE** | Whole system runs with no AI (`AI_PROVIDER=mock`). |
+| 12.8 | AI never receives secrets | **DONE** | `packages/ai/src/sanitize.ts` redacts credential-shaped values before *any* outbound request — applied inside each provider and at the worker + web boundaries. |
+| 12.9 | AI output schema-validated | **DONE** | `AiPageInterpretationSchema` / `AiWorkflowAnalysisSchema` / `parseTestCaseSuggestions` `.parse()` every adapter response; failure falls back to the heuristic or logs and continues. |
+| 12.10 | AI failure cannot crash the app | **DONE** | Timeouts (15s / 45s), try/catch fallbacks, and the mock short-circuit make every AI path fail soft. |
+| 12.11 | Web app can request generation | **PARTIAL** | `GET|POST /api/modules/[moduleId]/ai` exists: server-rebuilt, sanitised context; provider failure → `503 AI_UNAVAILABLE`. **No UI calls it.** |
 
-> Existing docs claimed AI "upgrades heuristics". It does not — heuristics are
-> always deterministic. Those claims have been corrected.
+> The claims this table previously inverted — "no Gemini provider", "only
+> `.label` is read", "`AI_PROVIDER=openai` produces no behavioural difference",
+> "`interpretPage` has zero call sites" — are all false now and have been
+> corrected. Gemini and Grok also exist; see §5.7 and §6/§4.10 for the advisory
+> boundaries.
 
 ---
 
 ## 13. Jev Ultrafast integration
 
-> **Not implemented. No code exists.** Verified: zero matches for `jev`,
-> `ultrafast`, `actionSelector`, `targetSelector` in the repository.
+Jev is reached through **TypeSafe System One** (`POST https://api.typesafe.ai/v1/systemone`),
+the same API the `jev-browser` npm package uses. Jev answers typed questions
+with probabilities (`noul` yes/no, `choice` pick-one) and never writes text.
+The repository talks to it directly from TypeScript, so there is no Python
+sidecar and no second browser: Jev picks among elements the worker listed,
+and the worker's own Playwright page performs every action.
 
-`browser-use/jev-ultrafast` is real and MIT licensed, but integrating it is not
-a matter of adding a file. Three constraints were established by reading the
-upstream project:
+| Piece | File |
+| --- | --- |
+| System One client (typed, retries 429/5xx, schema-checked answers) | `packages/ai/src/jev.ts` |
+| Page listing + redaction (secrets, emails, long numbers) | `apps/worker/src/jev/page-elements.ts`, `redact.ts` |
+| Element targeting, page checks, irreversibility | `apps/worker/src/jev/agent.ts` |
+| Login on unfamiliar forms (values offered by *name* only) | `apps/worker/src/jev/login.ts` |
+| Discovery hooks | `apps/worker/src/discovery/jev-assist.ts` |
+| Execution fallback | `apps/worker/src/test-execution/semantic-target.ts` |
 
-1. **It is Python** (`uv sync`, `from jev_ultrafast import Agent`). This
-   codebase is TypeScript. A sidecar process plus an IPC boundary is required.
-2. **It drives real Chrome over CDP** through Browser Use's "Browser Harness" —
-   *not* Playwright. The intended diagram, where Jev and Playwright drive one
-   page, does not match upstream behaviour. The Node port
-   `@tontoko/jev-browser` wraps an existing Playwright `page` and preserves
-   native assertions, and is the correct bridge for this repository.
-3. **It sends visible page text to its decision model on every step.** After
-   authentication that text contains customer data. This conflicts with §3.5
-   and requires an explicit redaction decision before any integration.
-
-Requires `TYPESAFE_API_KEY` plus an OpenAI-compatible text-model key.
+Enabled by `TYPESAFE_API_KEY`. Without it every hook is a no-op. Wired in both
+discovery (`runner.ts:116` builds the agent for login assist + the
+irreversible-action guard) and execution (`processor.ts:53` feeds
+`createJevResolver` into `ctx.resolver`, the last step of `waitForLocator`).
+Unit-tested against a scripted fake page; **live calls unverified** (no key
+configured).
 
 | # | Requirement | Status | Notes |
 | --- | --- | --- | --- |
-| 13.1 | Dynamic target resolution when a locator fails | **MISSING** | Today: hard fail with a diagnostic. |
-| 13.2 | Structured target → semantic locator → Jev → fail | **MISSING** | §37 fallback chain not built. |
+| 13.1 | Dynamic target resolution when a locator fails | **DONE** | Jev is consulted after a 3s deterministic poll. |
+| 13.2 | Structured target → semantic locator → Jev → fail | **DONE** | `waitForLocator`; failure message says whether Jev was consulted. |
 | 13.3 | Unresolved target never silently skipped | **DONE** | Fails with diagnostic. |
-| 13.4 | Jev never decides pass/fail | **DONE (vacuous)** | No Jev. |
+| 13.4 | Jev never decides pass/fail | **DONE** | Assertions stay deterministic in `assertions.ts`. |
+| 13.5 | Credentials never sent to Jev | **DONE** | Login offers `username`/`password` as names; secrets scrubbed from page text. Tested. |
+| 13.6 | Login on non-standard forms during discovery | **DONE** | Used only when heuristics cannot find both credential fields. |
+| 13.7 | Skip irreversible actions during discovery | **DONE** | `JEV_GUARD_IRREVERSIBLE`; fails open to the static `dangerous` filter. |
+
+Known limits: elements inside iframes and shadow DOM are not listed yet; Jev
+login stops at captcha / 2FA (`blocked`) rather than attempting it.
 
 ---
 
@@ -360,30 +378,33 @@ Requires `TYPESAFE_API_KEY` plus an OpenAI-compatible text-model key.
 | 14.1 | Structured logging | **DONE** | `createChildLogger` with module/run IDs. |
 | 14.2 | Secrets never logged | **DONE** | Verified. |
 | 14.3 | Zod validation on API input | **DONE** | `packages/schemas`, `route()` wrapper. |
-| 14.4 | AI output validated | **PARTIAL** | §12.9. |
-| 14.5 | CSV validated | **MISSING** | §9.11. |
+| 14.4 | AI output validated | **DONE** | §12.9 — every adapter response is schema-`.parse()`d. |
+| 14.5 | CSV validated | **PARTIAL** | §9.11 — server-side RFC 4180 validation on upload; UI check is a mere `includes(",")`. |
 | 14.6 | Session + CSRF on mutations | **DONE** | Guarded route helpers. |
 | 14.7 | bcrypt cost ≥ 12 | **DONE** | Auth. |
 | 14.8 | Production guard | **PARTIAL** | See §7.18 — acknowledged at creation, skipped for auto-discovery, absent from execution. |
 | 14.9 | Evidence route not publicly readable | **MISSING** | `app/storage/[...key]` is unauthenticated. Screenshot URLs are guessable-ish and ungated. |
-| 14.10 | Automated test coverage | **MISSING** | One test file in the entire repo (`apps/demo-app/src/app.test.ts`). `pnpm -r test` exits 1. |
+| 14.10 | Automated test coverage | **PARTIAL** | **19 test files / 172 tests**, all passing (core 22, schemas 15, demo-app 4, browser 21, ai 25, web 10, worker 75). Root `pnpm -r test` still exits 1, but **not** because a test fails: `@repo/db` declares `"test": "vitest run"` with no test files, and pnpm aborts on the first failed workspace. The data-driven tests are untracked (`data-driven.test.ts`). |
+| 14.11 | SSRF guard on user-supplied target URLs | **PARTIAL** | `packages/core/url-guard.ts` (`safeUrlError`) runs at project create + update; `ALLOW_PRIVATE_TARGETS` is the local-dev escape hatch. `assertSafeFetch` in `ssrf-guard.ts` has **no caller**, and worker `page.goto` navigation is unguarded (the SSRF posture relies on project-create/update). |
 
 ---
 
 ## 15. Priority order for remaining work
 
-Ordered by user-visible value ÷ risk. Items 1–6 need no external API keys.
+Ordered by user-visible value ÷ risk. None of the top ten need external keys.
+Gemini/Grok/Jev are implemented but unevaluated live, so live verification keys
+are the only paid line items on the roadmap.
 
 | Rank | Item | Requirement |
 | --- | --- | --- |
-| 1 | Fix dataset creation 400 (schema mismatch) | §9.5 |
-| 2 | Wire CSV into the executor: `TC_ID` match, one result per row | §9.6–9.9 |
+| 1 | Binding UI/API: allow editing `test_cases.dataset_id` (today it is SQL-only) | §9.6, §9.9 |
+| 2 | Fix dataset save + delete: `KEY_VALUE` payload schema, DELETE double-`where` | §9.4, §9.5 |
 | 3 | Approve/reject UI + executor status gate | §6.3–6.5 |
 | 4 | Migrate credentials to project scope + `module_credentials` | §3.9–3.10 |
 | 5 | Artifacts table + video / trace / console capture | §8.4–8.8 |
 | 6 | Retries, attempt history, Rerun Failed, parallel workers | §7.12–7.14 |
-| 7 | Gemini provider behind `AIProvider`, schema-validated | §12.5–12.6 |
-| 8 | Jev bridge via `@tontoko/jev-browser`, with redaction | §13.1–13.2 |
+| 7 | Wire the coverage + findings engines into the run processor | §14 (0013 tables) |
+| 8 | Surface AI page insight and report export in the UI | §12.11, §10.13 |
 | 9 | Incremental discovery + diffing | §4.11–4.12 |
 | 10 | Authenticate the evidence route | §14.9 |
 
@@ -405,15 +426,15 @@ actually happens today.
 | 7 | Verify pages and workflows stored | Works |
 | 8 | Discover a single module only | Works |
 | 9 | Verify only that module's discovery ran | Works |
-| 10 | Ask Gemini to generate test cases | **Blocked** — §12.5 |
-| 11 | Generate positive / negative / validation / boundary | Deterministic path only |
+| 10 | Ask Gemini to generate test cases | Advisory when configured — up to 10 pages/run, grounded on discovered elements, `source = "ai"` |
+| 11 | Generate positive / negative / validation / boundary | Deterministic path only (AI suggestions never replace it) |
 | 12 | Review and approve test cases | **Blocked** — §6.3 |
-| 13 | Upload or select a CSV dataset | **Broken** — §9.5 returns 400 |
+| 13 | Upload or select a CSV dataset | CSV upload **works** (§9.5); selecting/binding a dataset to a case is **Blocked** — §9.9 |
 | 14 | Execute selected test cases | Works (whole module only) |
-| 15 | Use Jev for dynamic target resolution | **Blocked** — §13.1 |
+| 15 | Use Jev for dynamic target resolution | Wired with `TYPESAFE_API_KEY` — §13; untested live |
 | 16 | Execute actions through Playwright | Works |
 | 17 | Deterministic assertions | Works |
-| 18 | Run multiple CSV rows | **Blocked** — §9.6 |
+| 18 | Run multiple CSV rows | Wired in the executor, but **Blocked** end to end — no way to bind a case to a dataset except SQL (§9.9) |
 | 19 | Run tests in parallel | **Blocked** — §7.14 |
 | 20 | Retry failures per configuration | **Blocked** — §7.12 |
 | 21 | Capture screenshots | Works |
@@ -429,6 +450,5 @@ actually happens today.
 | 31 | Create a new run for the rerun | **Blocked** — §7.13 |
 | 32 | Preserve complete history | Works |
 
-**8 of 32 acceptance steps are blocked.** The two AI integrations account for
-none of them being secretly faked — they are honestly absent, and the platform is
-fully functional without them.
+**7 of 32 acceptance steps are blocked.** AI and Jev are honestly wired but
+untested live (no keys), and the platform is fully functional with neither.

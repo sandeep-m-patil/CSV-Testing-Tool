@@ -236,8 +236,12 @@ described as *what the user means*, never as a selector; the agent answers with
 a description and Playwright still performs the lookup. Anything sent out is
 redacted, and every error is a miss rather than a failure. 9 tests.
 
-The Jev package itself is still not installed, so the resolver is inert until
-`JEV_API_KEY`, `JEV_BASE_URL` and a text-model key are configured.
+The Jev client (`packages/ai/src/jev.ts` over TypeSafe System One) is
+subsequently installed, so the resolver is *wired, not inert*: `createJevAgent`
+is built at `runner.ts:116` (discovery) and `processor.ts:53` (execution), and
+**`TYPESAFE_API_KEY`** (not `JEV_API_KEY`) gates it. Without that key the agent
+is `null` and `isEnabled()` returns false, so the fallback chain skips Jev —
+see Part 3.
 
 ## 9. Coverage, findings, reports
 
@@ -268,10 +272,57 @@ unchanged and is the reason the root test script fails rather than any test.
 - Live Gemini and Grok calls are unverified: `GEMINI_API_KEY` and `XAI_API_KEY`
   are not configured. The adapters are unit-tested against mocked HTTP.
 - Jev live verification needs `TYPESAFE_API_KEY` plus a text-model key.
-- CSV data-driven execution is still incomplete: the UI and server disagree on
-  the payload shape, and `loadCases()` does not run one case per row.
+- CSV data-driven execution is wired (see Part 3): the executor expands a
+  bound case to one result per row. Remaining gaps are the *binding* path
+  (no API/UI sets `test_cases.dataset_id`), the `KEY_VALUE` save schema
+  mismatch, and the dataset `DELETE` double-`where` bug.
 - Dynamic credential fields remain constrained by the auth handoff, in which
   `action-space.ts` is protected and `encryptCredentials` handles a
   username/password pair only.
 - Coverage and findings engines are computed and tested, but not yet called
   during a test run, so no `coverage_records` or `findings` rows are written.
+
+---
+
+# Work Summary — Part 3
+
+Data-driven execution, wired. Closes the executor half of §9; the binding half
+stays open (no API/UI sets `test_cases.dataset_id`). Listed here is the
+uncommitted working tree.
+
+## 11. Data-driven test execution
+
+`apps/worker/src/test-execution/data-driven.ts` (from the a5ad269 scaffolding)
+is now called by the run processor.
+
+- `expandCases(drafts, datasets)` — a case with no `datasetId` runs once; a case
+  bound to a CSV dataset expands to **one result per row**. A dataset that is
+  missing, non-CSV or empty logs a warning and the case runs once unchanged, so
+  a deleted dataset quietly reducing coverage to zero is impossible.
+- `{{column}}` tokens are substituted into step `target` and `value`
+  (`substituteTokens`); an unknown column is left as written so the typo is
+  visible in the recorded step and the failure message instead of submitting an
+  empty field.
+- `loadDatasets` fetches only the datasets the drafts actually reference, so a
+  module with many datasets does not transfer them all.
+- Each result row now carries `dataset_id` + `dataset_row`
+  (`processor.ts:72-73`); `testData` for a row is the JSON of its values, not
+  the case template; screenshot keys get a `-row-N` suffix
+  (`executor.ts:239-240`) so per-row evidence does not collide.
+- The API (`GET /api/test-runs/[testRunId]`), result-grid and report surface
+  `datasetId`/`datasetRow`; the UI shows a `row N` badge and the row's JSON
+  values as the test data. 11 tests in `data-driven.test.ts`.
+
+Still open on this axis: no way to *set* `test_cases.dataset_id` (the PATCH
+schema has no field), `KEY_VALUE` dataset saves fail validation (client sends an
+object, schema expects a string), and `DELETE /api/.../test-data?id=…` chains
+two `.where()` calls, which drizzle *replaces* — the effective predicate is
+`module_id = ?`, deleting every dataset in the module.
+
+## 12. Verification
+
+- Tests, per workspace: core 22 · schemas 15 · demo-app 4 · browser 21 · ai 25 ·
+  web 10 · worker 75 — **172 passing tests across 19 files**.
+- Root `pnpm -r test` still exits 1, unchanged and unrelated to any test:
+  `@repo/db` runs `vitest run` with zero test files.
+- `pnpm -r --no-bail test` confirmed the per-workspace splits above.

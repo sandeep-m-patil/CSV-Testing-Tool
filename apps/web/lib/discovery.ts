@@ -1,6 +1,6 @@
 import { and, eq } from "drizzle-orm";
 import { discoverySessions, modules, projects } from "@repo/db/schema";
-import { AppError, createDiscoveryQueue, DISCOVERY_JOB_NAME } from "@repo/core";
+import { AppError, createDiscoveryQueue, DISCOVERY_JOB_NAME, enqueueJob } from "@repo/core";
 import { db } from "@/lib/db";
 
 export const DEFAULT_MODULE_NAME = "Whole site";
@@ -51,21 +51,26 @@ export async function enqueueDiscovery(input: {
     throw new AppError("DISCOVERY_FAILED", "Could not create discovery session", 500);
   }
 
-  const queue = createDiscoveryQueue(process.env.REDIS_URL);
   try {
-    await queue.add(DISCOVERY_JOB_NAME, {
+    await enqueueJob(createDiscoveryQueue(process.env.REDIS_URL), DISCOVERY_JOB_NAME, {
       discoverySessionId: sessionRow.id,
       moduleId: input.moduleId,
       projectId: input.projectId,
       role: input.role,
     });
-  } finally {
-    await queue.close();
+  } catch (error) {
+    // A session nobody will ever pick up must not sit in QUEUED forever.
+    await db
+      .update(discoverySessions)
+      .set({ status: "FAILED", error: error instanceof Error ? error.message : String(error), completedAt: new Date() })
+      .where(eq(discoverySessions.id, sessionRow.id));
+    throw error;
   }
 
+  // Lifecycle (`status`) is left alone: discovery must never re-enable a module the user disabled.
   await db
     .update(modules)
-    .set({ discoveryStatus: "DISCOVERING", status: "ACTIVE", updatedAt: new Date() })
+    .set({ discoveryStatus: "DISCOVERING", updatedAt: new Date() })
     .where(eq(modules.id, input.moduleId));
 
   return sessionRow.id;

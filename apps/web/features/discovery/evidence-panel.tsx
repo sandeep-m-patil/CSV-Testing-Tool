@@ -40,10 +40,16 @@ export function EvidencePanel({
 
   return (
     <Tabs defaultValue="evidence">
-      <div className="mb-3 flex items-center justify-between gap-2">
+      <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
         <TabsList>
-          <TabsTrigger value="evidence">Evidence</TabsTrigger>
-          <TabsTrigger value="pages">Pages</TabsTrigger>
+          <TabsTrigger value="evidence">
+            Evidence
+            <span className="text-xs tabular-nums text-muted-foreground">{artifacts.length}</span>
+          </TabsTrigger>
+          <TabsTrigger value="pages">
+            Pages
+            <span className="text-xs tabular-nums text-muted-foreground">{pages.length}</span>
+          </TabsTrigger>
         </TabsList>
         <div className="flex items-center gap-2">
           <span className="text-xs text-muted-foreground">{artifacts.length} screenshots</span>
@@ -51,7 +57,7 @@ export function EvidencePanel({
             <Button
               variant="outline"
               size="icon"
-              className="h-7 w-7"
+              className="h-8 w-8"
               title={gridSize === "sm" ? "Larger thumbnails" : "Smaller thumbnails"}
               aria-label="Toggle thumbnail size"
               onClick={() => setGridSize((current) => (current === "sm" ? "lg" : "sm"))}
@@ -73,21 +79,20 @@ export function EvidencePanel({
 
       <TabsContent value="pages" className="mt-0">
         {pages.length === 0 && <EmptyState>No pages discovered yet.</EmptyState>}
-        <div className="overflow-hidden rounded-lg border">
-          {pages.map((page, index) => (
-            <div
-              key={page.id}
-              className={`p-3 ${index % 2 === 0 ? "bg-muted/10" : ""} ${index !== pages.length - 1 ? "border-b" : ""}`}
-            >
-              <div className="flex items-center gap-2">
-                <p className="text-sm font-medium">{page.name}</p>
-                <Badge variant="muted">{page.pageType}</Badge>
-              </div>
-              <p className="truncate font-mono text-xs text-muted-foreground">{page.url}</p>
-              {page.title && <p className="truncate text-xs text-muted-foreground">{page.title}</p>}
-            </div>
-          ))}
-        </div>
+        {pages.length > 0 && (
+          <ul className="max-h-[480px] divide-y overflow-auto rounded-xl border bg-card">
+            {pages.map((page) => (
+              <li key={page.id} className="space-y-0.5 px-4 py-3">
+                <div className="flex flex-wrap items-center gap-2">
+                  <p className="text-sm font-medium">{page.name}</p>
+                  <Badge variant="muted">{page.pageType}</Badge>
+                </div>
+                <p className="truncate font-mono text-xs text-muted-foreground">{page.url}</p>
+                {page.title && <p className="truncate text-xs text-muted-foreground">{page.title}</p>}
+              </li>
+            ))}
+          </ul>
+        )}
       </TabsContent>
 
       <Dialog open={preview !== null} onOpenChange={(open) => !open && setPreview(null)}>
@@ -135,23 +140,23 @@ function EvidenceLink({
 
 function EvidenceCard({ artifact, onOpen }: { artifact: DiscoveryArtifact; onOpen: () => void }) {
   return (
-    <figure className="overflow-hidden rounded-lg border bg-card">
+    <figure className="group overflow-hidden rounded-xl border bg-card transition-colors hover:border-muted-foreground/30">
       {artifact.url ? (
         <button
           type="button"
           onClick={onOpen}
-          className="block w-full cursor-zoom-in"
+          className="block w-full cursor-zoom-in overflow-hidden focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
           aria-label={`Preview ${artifact.label}`}
         >
           <img
             src={artifact.url}
             alt={artifact.label}
-            className="h-44 w-full border-b object-top"
+            className="h-44 w-full border-b bg-muted/40 object-cover object-top transition-transform duration-300 group-hover:scale-[1.02]"
             data-testid="evidence-image"
           />
         </button>
       ) : (
-        <div className="flex h-44 items-center justify-center bg-muted/20 text-xs text-muted-foreground">
+        <div className="flex h-44 items-center justify-center border-b bg-muted/30 text-xs text-muted-foreground">
           <Camera className="mr-1 h-4 w-4" />
           preview unavailable
         </div>
@@ -223,7 +228,7 @@ function ScreenshotViewer({ url, alt }: { url: string; alt: string }) {
         </div>
       </div>
 
-      <div className="max-h-[70vh] overflow-auto rounded-lg border bg-muted p-2">
+      <div className="max-h-[70vh] overflow-auto rounded-lg border bg-background p-2">
         <img
           src={url}
           alt={alt}
@@ -237,7 +242,8 @@ function ScreenshotViewer({ url, alt }: { url: string; alt: string }) {
 
 function EmptyState({ children }: { children: React.ReactNode }) {
   return (
-    <div className="flex h-40 items-center justify-center rounded-lg border border-dashed text-sm text-muted-foreground">
+    <div className="flex h-40 flex-col items-center justify-center gap-2 rounded-xl border border-dashed bg-card/40 text-sm text-muted-foreground">
+      <Camera className="h-5 w-5" aria-hidden="true" />
       {children}
     </div>
   );

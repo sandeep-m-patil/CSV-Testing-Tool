@@ -1,4 +1,4 @@
-import { and, asc, eq, isNotNull } from "drizzle-orm";
+import { asc, eq } from "drizzle-orm";
 import { testRunResults, testRuns, testCases, modules } from "@repo/db/schema";
 import { AppError } from "@repo/core";
 import { noContent, ok, route } from "@/lib/api";
@@ -7,6 +7,7 @@ import { requireModuleAccess } from "@/lib/auth/guards";
 import { assertSameOrigin } from "@/lib/csrf";
 import { db } from "@/lib/db";
 import { getStorage } from "@/lib/storage";
+import { evidenceKeysOf, presentResult, presentRun } from "@/lib/test-run-view";
 
 type Params = { params: Promise<Record<string, string>> };
 
@@ -34,6 +35,14 @@ export const GET = route(async (_request, context: Params) => {
       error: testRunResults.error,
       screenshotKey: testRunResults.screenshotKey,
       order: testRunResults.order,
+      datasetId: testRunResults.datasetId,
+      datasetRow: testRunResults.datasetRow,
+      attempts: testRunResults.attempts,
+      attemptCount: testRunResults.attemptCount,
+      stepResults: testRunResults.stepResults,
+      role: testRunResults.role,
+      credentialName: testRunResults.credentialName,
+      browser: testRunResults.browser,
       code: testCases.code,
       name: testCases.name,
       type: testCases.type,
@@ -46,14 +55,12 @@ export const GET = route(async (_request, context: Params) => {
 
   const [module] = await db.select().from(modules).where(eq(modules.id, run.moduleId)).limit(1);
 
+  const parent = run.parentRunId ? (await db.select().from(testRuns).where(eq(testRuns.id, run.parentRunId)).limit(1))[0] : undefined;
+
   return ok({
-    testRun: run,
+    testRun: presentRun(run, parent),
     module: module ?? null,
-    results: results.map((row) => ({
-      ...row,
-      code: row.code ?? `TC-${String(row.order + 1).padStart(4, "0")}`,
-      screenshotUrl: row.screenshotKey ? storage.getPublicUrl(row.screenshotKey) : null,
-    })),
+    results: results.map((row) => presentResult(row, storage)),
   });
 });
 
@@ -73,14 +80,13 @@ export const DELETE = route(async (request, context: Params) => {
   }
   await requireModuleAccess(run.moduleId, session);
 
-  const screenshotKeys = (
+  // Final, per-attempt and per-step screenshots are all owned by the run.
+  const screenshotKeys = evidenceKeysOf(
     await db
-      .select({ screenshotKey: testRunResults.screenshotKey })
+      .select({ screenshotKey: testRunResults.screenshotKey, attempts: testRunResults.attempts, stepResults: testRunResults.stepResults })
       .from(testRunResults)
-      .where(and(eq(testRunResults.testRunId, run.id), isNotNull(testRunResults.screenshotKey)))
-  )
-    .map((row) => row.screenshotKey)
-    .filter((key): key is string => typeof key === "string" && key.length > 0);
+      .where(eq(testRunResults.testRunId, run.id)),
+  );
 
   // test_run_results is removed by the foreign-key cascade on test_runs.
   await db.delete(testRuns).where(eq(testRuns.id, run.id));

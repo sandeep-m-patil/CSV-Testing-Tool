@@ -1,4 +1,4 @@
-import type { AiPageContext, AiPageInterpretation, AiWorkflowAnalysis } from "@repo/schemas";
+import type { AiPageContext, AiPageInterpretation, AiTestCaseSuggestions, AiWorkflowAnalysis } from "@repo/schemas";
 import type { AIProvider } from "./types";
 
 /**
@@ -81,6 +81,11 @@ export class MockProvider implements AIProvider {
       purpose: `Discovered ${context.pages.length} pages and ${context.transitions.length} transitions for ${context.moduleName}.`,
       workflows: [...createFlows, ...navigationFlows].slice(0, 40),
     };
+  }
+
+  /** The deterministic scenario builders already cover every page; nothing to add. */
+  async generateTestCases(): Promise<AiTestCaseSuggestions> {
+    return { cases: [] };
   }
 }
 

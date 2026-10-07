@@ -2,17 +2,18 @@
 
 import { useParams } from "next/navigation";
 import Link from "next/link";
-import { FileCode2, GitBranch, Info } from "lucide-react";
-import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
+import { ArrowRight, ListChecks } from "lucide-react";
+import { EmptyState } from "@/components/ui/empty-state";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
-import { useModuleDetail, useTestCases, useWorkflows, type TestCaseRecord, type WorkflowRecord } from "@/features/hooks";
+import { useModuleDetail, useTestCases, useWorkflows, type TestCaseRecord } from "@/features/hooks";
 import { ModuleNav } from "@/features/modules/module-nav";
+import { ModuleNotFound, ModulePageSkeleton } from "@/features/modules/module-page-states";
 import { DiscoverModuleButton } from "@/features/discovery/discover-button";
 import { RunTestsButton } from "@/features/test-runs/run-tests-button";
-import { formatStepValue } from "@/lib/test-cases/step-display";
+import { ApproveAllDraftsButton } from "@/features/test-cases/case-review-actions";
+import { TestCaseList } from "@/features/test-cases/test-case-list";
+import { WorkflowList } from "@/features/test-cases/workflow-list";
 
 export default function ModuleReviewPage() {
   const params = useParams<{ moduleId: string }>();
@@ -24,68 +25,65 @@ export default function ModuleReviewPage() {
 
   if (isLoading) {
     return (
-      <div className="mx-auto max-w-6xl space-y-6">
-        <Skeleton className="h-24 rounded-xl" />
+      <ModulePageSkeleton>
         <Skeleton className="h-96 rounded-xl" />
-      </div>
+      </ModulePageSkeleton>
     );
   }
 
   const module = detail?.module;
-  if (!module) {
-    return <div className="py-20 text-center text-sm text-muted-foreground">Module not found.</div>;
-  }
+  if (!module) return <ModuleNotFound />;
 
   const hasResult = (workflows?.length ?? 0) > 0 || (testCases?.length ?? 0) > 0;
+  const actions = (
+    <>
+      {module.discoveryStatus !== "DISCOVERING" && <DiscoverModuleButton moduleId={moduleId} moduleName={module.name} />}
+      <RunTestsButton moduleId={moduleId} moduleName={module.name} caseCount={testCases?.length ?? 0} />
+    </>
+  );
 
   return (
     <div className="mx-auto max-w-6xl space-y-6">
-      <ModuleNav moduleId={moduleId} moduleName={module.name} status={module.discoveryStatus} />
+      <ModuleNav
+        moduleId={moduleId}
+        moduleName={module.name}
+        status={module.discoveryStatus}
+        project={detail?.project ? { id: detail.project.id, name: detail.project.name } : null}
+        actions={actions}
+      />
 
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div>
-          <h2 className="text-lg font-semibold">Review</h2>
-          <p className="text-sm text-muted-foreground">
-            Workflows and test cases generated from the last discovery run. Run them from the Test runs tab.
-          </p>
-        </div>
-        <div className="flex items-center gap-2">
-          <RunTestsButton moduleId={moduleId} moduleName={module.name} caseCount={testCases?.length ?? 0} />
-          {module.discoveryStatus !== "DISCOVERING" && (
-            <DiscoverModuleButton moduleId={moduleId} moduleName={module.name} />
-          )}
-        </div>
-      </div>
+      <p className="text-sm text-muted-foreground">
+        Workflows and test cases generated from the last discovery run. Run them from the Test runs tab.
+      </p>
 
       {!hasResult && (
-        <Alert>
-          <Info className="h-4 w-4" />
-          <AlertTitle>Nothing generated yet</AlertTitle>
-          <AlertDescription>Run discovery to generate workflows and candidate test cases.</AlertDescription>
-        </Alert>
+        <EmptyState
+          icon={<ListChecks />}
+          title="Nothing generated yet"
+          description="Run discovery to generate workflows and candidate test cases."
+        />
       )}
 
       {hasResult && (
         <Tabs defaultValue="workflows">
           <TabsList>
-            <TabsTrigger value="workflows">Workflows</TabsTrigger>
-            <TabsTrigger value="tests">Test cases</TabsTrigger>
+            <TabsTrigger value="workflows">
+              Workflows
+              <span className="text-xs tabular-nums text-muted-foreground">{workflows?.length ?? 0}</span>
+            </TabsTrigger>
+            <TabsTrigger value="tests">
+              Test cases
+              <span className="text-xs tabular-nums text-muted-foreground">{testCases?.length ?? 0}</span>
+            </TabsTrigger>
           </TabsList>
           <TabsContent value="workflows" className="mt-4">
             <WorkflowList workflows={workflows ?? []} loading={workflowsLoading} />
           </TabsContent>
-          <TabsContent value="tests" className="mt-4 space-y-3">
+          <TabsContent value="tests" className="mt-4 space-y-4">
             {(testCases?.length ?? 0) > 0 && (
-              <div className="flex items-center justify-between text-sm text-muted-foreground">
-                <span>
-                  {testCases!.length} case{testCases!.length === 1 ? "" : "s"} ready to run
-                </span>
-                <Link href={`/modules/${moduleId}/test-runs`} className="font-medium text-primary hover:underline">
-                  View results
-                </Link>
-              </div>
+              <RunPolicyBar moduleId={moduleId} testCases={testCases!} requireApproval={module.requireApproval} />
             )}
-            <TestCaseList testCases={testCases ?? []} loading={testsLoading} />
+            <TestCaseList moduleId={moduleId} testCases={testCases ?? []} loading={testsLoading} />
           </TabsContent>
         </Tabs>
       )}
@@ -93,112 +91,36 @@ export default function ModuleReviewPage() {
   );
 }
 
-function WorkflowList({ workflows, loading }: { workflows: WorkflowRecord[]; loading: boolean }) {
-  if (loading) return <Skeleton className="h-40 rounded-xl" />;
-  if (workflows.length === 0) return <Empty text="No workflows generated yet." />;
-
-  return (
-    <div className="grid gap-3 lg:grid-cols-2">
-      {workflows.map((workflow) => (
-        <article key={workflow.id} className="rounded-xl border bg-card p-4">
-          <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
-            <h3 className="flex items-center gap-2 font-semibold">
-              <GitBranch className="h-4 w-4 text-primary" />
-              {workflow.name}
-            </h3>
-            <div className="flex items-center gap-1.5">
-              <Badge variant="muted">{workflow.source}</Badge>
-              <Badge variant={workflow.confidence === "HIGH" ? "success" : workflow.confidence === "MEDIUM" ? "warning" : "muted"}>
-                {workflow.confidence.toLowerCase()} confidence
-              </Badge>
-            </div>
-          </div>
-          {workflow.description && <p className="mb-2 text-sm text-muted-foreground">{workflow.description}</p>}
-          {workflow.preconditions.length > 0 && (
-            <p className="mb-2 text-xs text-muted-foreground">
-              <span className="font-medium">Precondition:</span> {workflow.preconditions.join(", ")}
-            </p>
-          )}
-          <ol className="space-y-1">
-            {workflow.steps.map((step) => (
-              <li key={step.order} className="flex items-start gap-2 text-sm">
-                <span className="mt-0.5 flex h-4 w-4 shrink-0 items-center justify-center rounded-full bg-muted text-[10px] font-medium">
-                  {step.order}
-                </span>
-                <span className={step.optional ? "text-muted-foreground" : ""}>
-                  <code className="rounded bg-muted px-1 py-0.5 text-xs">{step.action}</code>{" "}
-                  <span className="font-mono text-xs text-muted-foreground">{step.target}</span>
-                  {step.value === undefined && null}
-                  {step.value !== undefined && (
-                    <span className="text-xs text-muted-foreground"> = “{formatStepValue(step.value)}”</span>
-                  )}
-                  {step.optional && <Badge variant="muted" className="ml-1">optional</Badge>}
-                </span>
-              </li>
-            ))}
-          </ol>
-        </article>
-      ))}
-    </div>
-  );
+/** Mirrors the executor's gate: rejected never runs; with approval required, only reviewed cases do. */
+function runnableCount(testCases: TestCaseRecord[], requireApproval: boolean): number {
+  return testCases.filter((test) => test.status !== "REJECTED" && (!requireApproval || test.status === "APPROVED" || test.status === "READY")).length;
 }
 
-function TestCaseList({ testCases, loading }: { testCases: TestCaseRecord[]; loading: boolean }) {
-  if (loading) return <Skeleton className="h-40 rounded-xl" />;
-  if (testCases.length === 0) return <Empty text="No test cases generated yet." />;
-
-  return (
-    <div className="overflow-hidden rounded-xl border bg-card">
-      {testCases.map((test, index) => (
-        <div key={test.id} className={`p-4 ${index % 2 === 0 ? "bg-muted/10" : ""} ${index !== testCases.length - 1 ? "border-b" : ""}`}>
-          <div className="mb-2 flex flex-wrap items-center gap-2">
-            <FileCode2 className="h-4 w-4 text-primary" />
-            <span className="font-mono text-xs font-semibold text-muted-foreground">{test.code}</span>
-            <h3 className="font-semibold">{test.name}</h3>
-            <Badge variant={priorityVariant(test.priority)}>{test.priority.toLowerCase()} priority</Badge>
-            <Badge variant="muted">{test.type}</Badge>
-            {test.role && <Badge variant="info">{test.role}</Badge>}
-            <Badge variant="success">{test.status.toLowerCase()}</Badge>
-          </div>
-          {test.description && <p className="mb-2 text-sm text-muted-foreground">{test.description}</p>}
-          {test.precondition && (
-            <p className="mb-2 text-xs text-muted-foreground">
-              <span className="font-medium">Precondition:</span> {test.precondition}
-            </p>
-          )}
-          <ol className="space-y-1">
-            {test.steps.map((step) => (
-              <li key={step.order} className="flex items-start gap-2 text-sm">
-                <span className="mt-0.5 flex h-4 w-4 shrink-0 items-center justify-center rounded-full bg-muted text-[10px] font-medium">
-                  {step.order}
-                </span>
-                <span>
-                  <code className="rounded bg-muted px-1 py-0.5 text-xs">{step.action}</code>{" "}
-                  <span className="font-mono text-xs text-muted-foreground">{step.target}</span>
-                  {step.value !== undefined && (
-                    <span className="text-xs text-muted-foreground"> = “{formatStepValue(step.value)}”</span>
-                  )}
-                  {step.type === "assertion" && <Badge variant="info" className="ml-1">assertion</Badge>}
-                </span>
-              </li>
-            ))}
-          </ol>
-        </div>
-      ))}
-    </div>
-  );
+interface RunPolicyBarProps {
+  moduleId: string;
+  testCases: TestCaseRecord[];
+  requireApproval: boolean;
 }
 
-function priorityVariant(priority: string): "destructive" | "warning" | "muted" {
-  if (priority === "CRITICAL" || priority === "HIGH") return "destructive";
-  if (priority === "MEDIUM") return "warning";
-  return "muted";
-}
-
-function Empty({ text }: { text: string }) {
+function RunPolicyBar({ moduleId, testCases, requireApproval }: RunPolicyBarProps) {
+  const runnable = runnableCount(testCases, requireApproval);
   return (
-    <div className="flex h-40 items-center justify-center rounded-xl border border-dashed text-sm text-muted-foreground">
-      {text}
+    <div className="flex flex-col gap-3 rounded-xl border bg-card px-4 py-3 text-sm sm:flex-row sm:items-center sm:justify-between">
+      <p className="text-muted-foreground">
+        <span className="font-semibold tabular-nums text-foreground">{runnable}</span> of{" "}
+        <span className="tabular-nums">{testCases.length}</span> case{testCases.length === 1 ? "" : "s"} will run
+        {requireApproval ? " (approval required)" : " (rejected cases are skipped)"}
+      </p>
+      <div className="flex flex-wrap items-center gap-3">
+        <ApproveAllDraftsButton moduleId={moduleId} draftCount={testCases.filter((test) => test.status === "DRAFT").length} />
+        <Link
+          href={`/modules/${moduleId}/test-runs`}
+          className="inline-flex items-center gap-1 rounded-sm font-medium text-foreground underline-offset-4 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+        >
+          View results
+          <ArrowRight className="h-3.5 w-3.5" aria-hidden="true" />
+        </Link>
+      </div>
     </div>
   );
 }

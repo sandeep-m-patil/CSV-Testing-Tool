@@ -3,16 +3,16 @@ import { cva, type VariantProps } from "class-variance-authority";
 import { cn } from "@/lib/utils";
 
 const alertVariants = cva(
-  "relative w-full rounded-lg border px-4 py-3 text-sm [&>svg+div]:translate-y-[-3px] [&>svg]:absolute [&>svg]:left-4 [&>svg]:top-4 [&>svg]:text-foreground",
+  "relative w-full rounded-lg border px-4 py-3 text-sm [&>svg+div]:translate-y-[-3px] [&>svg]:absolute [&>svg]:left-4 [&>svg]:top-4 [&>svg]:h-4 [&>svg]:w-4 [&>svg~*]:pl-7",
   {
     variants: {
       variant: {
-        default: "bg-background text-foreground",
-        // Tinted backgrounds stay dark so alert text remains readable; the
-        // previous light-mode fills (amber-50 / emerald-50) were unusable here.
-        destructive: "border-destructive/50 bg-destructive/10 text-destructive [&>svg]:text-destructive",
-        warning: "border-warning/50 bg-warning/10 text-warning [&>svg]:text-warning",
-        success: "border-success/50 bg-success/10 text-success [&>svg]:text-success",
+        default: "bg-card text-foreground [&>svg]:text-muted-foreground",
+        // Tinted backgrounds stay dark so the semantic text colour stays readable.
+        destructive: "border-destructive/40 bg-destructive/10 text-destructive [&>svg]:text-destructive",
+        warning: "border-warning/40 bg-warning/10 text-warning [&>svg]:text-warning",
+        success: "border-success/40 bg-success/10 text-success [&>svg]:text-success",
+        info: "border-info/40 bg-info/10 text-info [&>svg]:text-info",
       },
     },
     defaultVariants: { variant: "default" },
@@ -29,14 +29,14 @@ Alert.displayName = "Alert";
 
 const AlertTitle = React.forwardRef<HTMLParagraphElement, React.HTMLAttributes<HTMLHeadingElement>>(
   ({ className, ...props }, ref) => (
-    <h5 ref={ref} className={cn("mb-1 font-medium leading-none tracking-tight", className)} {...props} />
+    <h5 ref={ref} className={cn("mb-1 font-medium leading-tight tracking-tight", className)} {...props} />
   ),
 );
 AlertTitle.displayName = "AlertTitle";
 
 const AlertDescription = React.forwardRef<HTMLParagraphElement, React.HTMLAttributes<HTMLParagraphElement>>(
   ({ className, ...props }, ref) => (
-    <div ref={ref} className={cn("text-sm [&_p]:leading-relaxed", className)} {...props} />
+    <div ref={ref} className={cn("text-sm leading-relaxed opacity-90 [&_p]:leading-relaxed", className)} {...props} />
   ),
 );
 AlertDescription.displayName = "AlertDescription";

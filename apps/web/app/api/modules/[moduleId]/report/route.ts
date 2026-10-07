@@ -1,7 +1,9 @@
 import { and, count, desc, eq, inArray, sql } from "drizzle-orm";
+import { formatRunId } from "@repo/schemas";
 import {
   projects,
   credentials,
+  moduleCredentials,
   discoveredActions,
   discoveredElements,
   discoveredPages,
@@ -48,7 +50,11 @@ const moduleId = routeParams['moduleId']!;
       db.select({ value: count() }).from(workflows).where(eq(workflows.moduleId, moduleId)),
       db.select({ value: count() }).from(testCases).where(eq(testCases.moduleId, moduleId)),
       db.select({ value: count() }).from(discoveryArtifacts).where(eq(discoveryArtifacts.moduleId, moduleId)),
-      db.select({ role: credentials.role }).from(credentials).where(eq(credentials.moduleId, moduleId)),
+      db
+        .select({ role: credentials.role })
+        .from(moduleCredentials)
+        .innerJoin(credentials, eq(credentials.id, moduleCredentials.credentialId))
+        .where(eq(moduleCredentials.moduleId, moduleId)),
     ]);
 
   const roles = [...new Set(roleRows.map((row) => row.role))];
@@ -65,6 +71,8 @@ const moduleId = routeParams['moduleId']!;
       failedCases: testRuns.failedCases,
       skippedCases: testRuns.skippedCases,
       error: testRuns.error,
+      runNumber: testRuns.runNumber,
+      createdAt: testRuns.createdAt,
     })
     .from(testRuns)
     .where(eq(testRuns.moduleId, moduleId))
@@ -102,6 +110,7 @@ const moduleId = routeParams['moduleId']!;
     const skipped = byStatus("SKIP");
     return {
       ...run,
+      runLabel: formatRunId(run.runNumber, run.createdAt),
       startedAt: run.startedAt?.toISOString() ?? null,
       completedAt: run.completedAt?.toISOString() ?? null,
       executed,

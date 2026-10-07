@@ -1,14 +1,18 @@
 import * as React from "react";
 import { cn } from "@/lib/utils";
 
+const PERCENT = 100;
+
 interface ProgressProps extends React.HTMLAttributes<HTMLDivElement> {
   value?: number;
   max?: number;
+  /** Optional classes for the filled bar, e.g. `bg-success`. */
+  indicatorClassName?: string;
 }
 
 const Progress = React.forwardRef<HTMLDivElement, ProgressProps>(
-  ({ className, value = 0, max = 100, ...props }, ref) => {
-    const percent = Math.min(100, Math.max(0, (value / max) * 100));
+  ({ className, value = 0, max = PERCENT, indicatorClassName, ...props }, ref) => {
+    const percent = Math.min(PERCENT, Math.max(0, (value / max) * PERCENT));
     return (
       <div
         ref={ref}
@@ -20,8 +24,8 @@ const Progress = React.forwardRef<HTMLDivElement, ProgressProps>(
         {...props}
       >
         <div
-          className="h-full w-full flex-1 bg-primary transition-all duration-500"
-          style={{ transform: `translateX(-${100 - percent}%)` }}
+          className={cn("h-full w-full flex-1 rounded-full bg-brand transition-transform duration-500", indicatorClassName)}
+          style={{ transform: `translateX(-${PERCENT - percent}%)` }}
         />
       </div>
     );

@@ -1,68 +1,31 @@
 import { describe, expect, it } from "vitest";
-import { isJevConfigured, redactForAgent, createJevResolver } from "./semantic-target";
+import { JevAgent } from "../jev/agent";
+import { choice, createFakePage, createScriptedJev, noul } from "../jev/fake-page";
+import { createJevResolver } from "./semantic-target";
 
-describe("redactForAgent", () => {
-  it("keeps structural text", () => {
-    expect(redactForAgent("Sign in button")).toBe("Sign in button");
-  });
-
-  it("withholds email addresses", () => {
-    expect(redactForAgent("Signed in as jane.doe@example.com")).toBe("[redacted]");
-  });
-
-  it("withholds secret-shaped field names", () => {
-    expect(redactForAgent("api_key")).toBe("[redacted]");
-    expect(redactForAgent("Enter your password")).toBe("[redacted]");
-  });
-
-  it("truncates long page text", () => {
-    expect(redactForAgent("x".repeat(500))).toHaveLength(200);
-  });
-});
-
-describe("isJevConfigured", () => {
-  it("requires api key, base url and text model key", () => {
-    expect(isJevConfigured({})).toBe(false);
-    expect(isJevConfigured({ apiKey: "a", baseUrl: "http://x", textModelApiKey: undefined })).toBe(false);
-    expect(isJevConfigured({ apiKey: "a", baseUrl: "http://x", textModelApiKey: "b" })).toBe(true);
-  });
-});
+const page = () => createFakePage([{ i: 1, tag: "button", label: "Sign in" }]).page;
 
 describe("createJevResolver", () => {
-  const config = { apiKey: "key", baseUrl: "https://jev.test", textModel: "model" };
-
-  it("is disabled when unconfigured", async () => {
-    const resolver = createJevResolver({ apiKey: "key" });
+  it("is disabled without an agent, and resolves nothing", async () => {
+    const resolver = createJevResolver(null);
     expect(resolver.isEnabled()).toBe(false);
+    await expect(resolver.resolve(page(), { intent: "the Sign in button" })).resolves.toBeNull();
   });
 
-  it("reports a miss when the agent is unreachable", async () => {
-    const resolver = createJevResolver({ ...config, baseUrl: "https://jev.invalid" });
-    const page = { url: () => "https://shop.test", title: async () => "Shop" } as never;
-    await expect(resolver.resolve(page, { intent: "the Sign in button" })).resolves.toBeNull();
+  it("returns the locator Jev picked", async () => {
+    const jev = createScriptedJev([{ present: noul(0.9), target: choice("1", 0.9) }]);
+    const resolver = createJevResolver(new JevAgent(jev.client, { secrets: [] }));
+    expect(resolver.isEnabled()).toBe(true);
+    await expect(resolver.resolve(page(), { intent: "the Sign in button", role: "button" })).resolves.not.toBeNull();
   });
 
-  it("returns null when the agent finds nothing", async () => {
-    const original = globalThis.fetch;
-    globalThis.fetch = (async () => new Response(JSON.stringify({ found: false }), { status: 200 })) as never;
-    try {
-      const resolver = createJevResolver(config);
-      const page = { url: () => "https://shop.test", title: async () => "Shop" } as never;
-      await expect(resolver.resolve(page, { intent: "the Sign in button" })).resolves.toBeNull();
-    } finally {
-      globalThis.fetch = original;
-    }
-  });
-
-  it("never throws on a non-2xx response", async () => {
-    const original = globalThis.fetch;
-    globalThis.fetch = (async () => new Response("nope", { status: 500 })) as never;
-    try {
-      const resolver = createJevResolver(config);
-      const page = { url: () => "https://shop.test", title: async () => "Shop" } as never;
-      await expect(resolver.resolve(page, { intent: "the Sign in button" })).resolves.toBeNull();
-    } finally {
-      globalThis.fetch = original;
-    }
+  it("turns a Jev outage into a miss rather than a test failure", async () => {
+    const failing = (async () => new Response("unavailable", { status: 503 })) as typeof fetch;
+    const { JevClient } = await import("@repo/ai");
+    const agent = new JevAgent(new JevClient({ apiKey: "k", fetcher: failing, retries: 0 }), { secrets: [] });
+    const messages: string[] = [];
+    const resolver = createJevResolver(agent, (message) => messages.push(message));
+    await expect(resolver.resolve(page(), { intent: "the Sign in button" })).resolves.toBeNull();
+    expect(messages[0]).toMatch(/Jev error 503/);
   });
 });

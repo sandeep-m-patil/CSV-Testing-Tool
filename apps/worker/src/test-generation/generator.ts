@@ -3,6 +3,7 @@ import { discoveredActions, discoveredElements, discoveredPages, testCases } fro
 import type { DiscoveryContext } from "../discovery/runner";
 import { classifyFields, type DiscoveredControl } from "./fields";
 import { buildScenariosForPage, isAuthForm } from "./scenarios";
+import { createAiCaseGenerator } from "./ai-generation";
 
 const INPUT_TYPES = ["input", "textarea", "select", "button", "a", "link"];
 
@@ -35,6 +36,8 @@ export async function generateTestCases(ctx: DiscoveryContext): Promise<number> 
         .where(eq(testCases.moduleId, ctx.moduleId))
     ).map((row) => [row.name, row]),
   );
+  const generateAiCases = createAiCaseGenerator(ctx);
+  const takenNames = new Set(existing.keys());
 
   for (const page of pages) {
     if (!visited.has(page.id)) continue;
@@ -49,6 +52,14 @@ export async function generateTestCases(ctx: DiscoveryContext): Promise<number> 
       fields,
       controls,
       credential: primary ? { username: primary.username, password: primary.password } : undefined,
+    });
+    // Asked even when no deterministic scenario matched: that is exactly the
+    // unfamiliar page the heuristics were not written for.
+    count += await generateAiCases({
+      page: { url: page.url, name: page.name, pageType: page.pageType },
+      controls,
+      takenNames,
+      deterministicNames: scenarios.map((scenario) => scenario.name),
     });
     if (scenarios.length === 0) continue;
 
@@ -119,6 +130,7 @@ async function loadControls(ctx: DiscoveryContext, pageId: string): Promise<Disc
       testId: row.testId,
       cssSelector: row.cssSelector,
       ariaAttributes: row.ariaAttributes,
+      inputType: row.inputType,
     }));
 }
 

@@ -12,6 +12,7 @@ import { ModuleNav } from "@/features/modules/module-nav";
 import { DeleteTestRunButton } from "@/features/test-runs/delete-test-run-button";
 import { formatDateTime } from "@/features/test-runs/format";
 import { RunTestsButton } from "@/features/test-runs/run-tests-button";
+import { RerunFailedButton } from "@/features/test-runs/rerun-failed-button";
 import { RunTotals, TestResultGrid } from "@/features/test-runs/test-result-grid";
 import { TestRunReport } from "@/features/test-runs/test-run-report";
 
@@ -24,7 +25,10 @@ function pathnameFor(moduleId: string): string {
 function runStatusLabel(run: TestRunSummary): string {
   if (run.status === "QUEUED") return "Queued - waiting for the worker to pick it up";
   if (run.status === "RUNNING") return "Running test cases";
-  if (run.status === "COMPLETED") return `Completed - ${run.passedCases}/${run.totalCases} passed`;
+  if (run.status === "COMPLETED") {
+    const blocked = run.blockedCases > 0 ? `, ${run.blockedCases} blocked` : "";
+    return `Completed - ${run.passedCases}/${run.totalCases} passed, ${run.failedCases} failed${blocked}${run.error ? ` (${run.error})` : ""}`;
+  }
   return `Failed: ${run.error ?? "unknown error"}`;
 }
 
@@ -120,7 +124,8 @@ function TestRunsView() {
                   {run.status === "RUNNING" || run.status === "QUEUED" ? (
                     <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
                   ) : null}
-                  {formatDateTime(run.createdAt)}
+                  <span className="font-mono text-xs">{run.runLabel}</span>
+                  <span className="ml-1.5 text-xs text-muted-foreground">{formatDateTime(run.createdAt)}</span>
                 </TabsTrigger>
                 <DeleteTestRunButton
                   testRunId={run.id}
@@ -142,6 +147,13 @@ function TestRunsView() {
                   <div className="flex flex-wrap items-center justify-between gap-3">
                     <p className="text-sm text-muted-foreground">{runStatusLabel(runData.testRun)}</p>
                     <div className="flex gap-1 no-print">
+                      {runData.testRun.status === "COMPLETED" && (
+                        <RerunFailedButton
+                          moduleId={moduleId}
+                          testRunId={runData.testRun.id}
+                          failedCount={runData.results.filter((result) => result.status === "FAIL" || result.status === "BLOCKED").length}
+                        />
+                      )}
                       <Button size="sm" variant={view === "grid" ? "default" : "outline"} onClick={() => setView("grid")}>
                         Grid
                       </Button>
@@ -195,7 +207,7 @@ function downloadRunReport(data: { testRun: TestRunSummary; module: { name: stri
   const url = URL.createObjectURL(blob);
   const anchor = document.createElement("a");
   anchor.href = url;
-  anchor.download = `test-run-${data.testRun.id}.json`;
+  anchor.download = `${data.testRun.runLabel ?? `test-run-${data.testRun.id}`}.json`;
   anchor.click();
   URL.revokeObjectURL(url);
 }

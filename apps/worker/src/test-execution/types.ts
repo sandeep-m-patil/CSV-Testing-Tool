@@ -14,6 +14,8 @@ export const STEP_ACTIONS = [
   "UNCHECK",
   "SUBMIT",
   "PRESS",
+  "HOVER",
+  "UPLOAD",
   "WAIT",
   "VERIFY",
 ] as const;
@@ -29,7 +31,18 @@ export type Expectation =
   | { kind: "url_contains"; value: string }
   | { kind: "text_present"; value: string }
   | { kind: "element_visible"; target: string }
-  | { kind: "any_of"; options: Expectation[] };
+  | { kind: "element_hidden"; target: string }
+  | { kind: "element_enabled"; target: string }
+  | { kind: "element_disabled"; target: string }
+  | { kind: "url_equals"; value: string }
+  | { kind: "text_equals"; target: string; value: string }
+  | { kind: "text_contains"; target: string; value: string }
+  | { kind: "value_equals"; target: string; value: string }
+  | { kind: "element_count"; target: string; equals: number }
+  | { kind: "title_equals"; value: string }
+  | { kind: "title_contains"; value: string }
+  | { kind: "any_of"; options: Expectation[] }
+  | { kind: "all_of"; options: Expectation[] };
 
 export interface ExecutableStep {
   order: number;
@@ -54,5 +67,4 @@ export interface GeneratedCase {
   steps: ExecutableStep[];
 }
 
-export const RESULT_STATUSES = ["PASS", "FAIL", "SKIP"] as const;
-export type ResultStatus = (typeof RESULT_STATUSES)[number];
+export { RESULT_STATUSES, type ResultStatus } from "@repo/schemas";

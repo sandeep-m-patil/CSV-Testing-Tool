@@ -384,7 +384,7 @@ rather than trusting the counters.
 | Screenshots 404 | Storage driver misconfigured | Check `STORAGE_DRIVER` and that `data/storage` is shared between web and worker. |
 | `Module not found: Can't resolve '@valkey/valkey-glide'` | BullMQ optional-dep warning on log startup | Cosmetic; ioredis is used and jobs run. |
 | Redis connection errors | Redis not running | Start Redis (Docker Compose). |
-| AI features seem to do nothing | They are not implemented | See §12. Nothing is misconfigured. |
+| AI features seem to do nothing | `AI_PROVIDER` defaults to `mock` | The AI paths are advisory no-ops on the default; set `AI_PROVIDER=gemini|grok|openai|local` plus the matching key. See §12. |
 
 ---
 
@@ -394,14 +394,17 @@ Read this before you plan around the platform.
 
 ### Not implemented at all
 
-- **Gemini AI.** There is an `AIProvider` interface and a provider factory, but
-  no Gemini implementation, no `GEMINI_API_KEY`, and — importantly — **no call
-  sites**. The provider is constructed and only its `.label` is read, for a log
-  line. All test generation you see is deterministic heuristics. Setting
-  `AI_PROVIDER=openai` changes nothing today.
-- **Jev Ultrafast.** No Jev dependency, no integration. When a test case cannot
-  resolve its target through Playwright, the case **fails with a diagnostic**.
-  It is never silently skipped — see §8.
+- **Gemini/Grok/OpenAI/local AI.** Implemented (`AIProvider` + factory,
+  `sanitize.ts` redaction) and wired into discovery, workflow analysis and
+  extra case suggestions — but **advisory and off by default**
+  (`AI_PROVIDER=mock`). Live calls have not been verified against real
+  endpoints. Test generation you see is deterministic unless a provider is
+  configured; the model never influences PASS/FAIL.
+- **Jev Ultrafast.** Wired via TypeSafe System One behind `TYPESAFE_API_KEY`
+  (login assist + irreversible-action guard in discovery, locator fallback in
+  execution) and untested live. When a test case cannot resolve its target
+  through Playwright, the case **fails with a diagnostic** — never silently
+  skipped — see §8.
 - **Video, trace, and console/network logs.** Only screenshots are captured.
   The schema anticipates the other artifact types; nothing writes them.
 - **Approve / reject workflow.** Statuses exist but gate nothing (§7).

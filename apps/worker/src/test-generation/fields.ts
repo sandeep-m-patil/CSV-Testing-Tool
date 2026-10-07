@@ -17,6 +17,8 @@ export interface DiscoveredControl {
   testId: string | null;
   cssSelector: string | null;
   ariaAttributes: unknown;
+  /** HTML input type (`password`, `email`...), when the element is an input. */
+  inputType?: string | null;
 }
 
 export interface ClassifiedField {

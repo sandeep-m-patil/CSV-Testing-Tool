@@ -14,7 +14,6 @@ export type ReportLog = {
 };
 
 const NOISY_PATTERN = /Call log:|strict mode violation|Timeout .*exceeded|locator\.(click|fill|check|selectOption)/;
-const MAX_LEVELS = 6;
 
 function isNoise(log: ReportLog): boolean {
   return (log.level === "error" || log.level === "warn") && NOISY_PATTERN.test(log.message);
@@ -50,13 +49,13 @@ export function ReportLogs({ logs }: { logs: ReportLog[] }) {
       </CardHeader>
       <CardContent>
         {visible.length === 0 ? <p className="text-sm text-muted-foreground">No log entries.</p> : null}
-        <ol className="space-y-1 font-mono text-[11px] leading-relaxed">
+        <ol className="max-w-full space-y-0 overflow-hidden rounded-lg border bg-background/40 px-3 py-2 font-mono text-[11px] leading-relaxed">
           {visible.map((log) => (
-            <li key={log.id} className="print-block flex gap-2 border-b border-dashed py-0.5 last:border-0">
-              <span className="w-6 shrink-0 text-right font-semibold" style={{ color: levelColor(log.level) }}>
+            <li key={log.id} className="print-block flex gap-2 border-b border-dashed py-1 last:border-0">
+              <span className={`w-8 shrink-0 font-semibold ${levelColor(log.level)}`}>
                 {log.level.slice(0, 4).toUpperCase()}
               </span>
-              <span className="w-40 shrink-0 text-muted-foreground">{formatDate(log.createdAt)}</span>
+              <span className="hidden w-40 shrink-0 text-muted-foreground sm:inline">{formatDate(log.createdAt)}</span>
               <span className="whitespace-pre-wrap break-words">{log.message}</span>
             </li>
           ))}
@@ -66,11 +65,11 @@ export function ReportLogs({ logs }: { logs: ReportLog[] }) {
   );
 }
 
+/** Token colours on screen; the print stylesheet flattens everything to black ink. */
 function levelColor(level: string): string {
-  if (level === "error") return "#b91c1c";
-  if (level === "warn") return "#b45309";
-  if (level === "event" || level === "info") return "#1d4ed8";
-  if (level === "action") return "#047857";
-  if (level === "success") return "#047857";
-  return "#475569";
+  if (level === "error") return "text-destructive";
+  if (level === "warn") return "text-warning";
+  if (level === "event" || level === "info") return "text-info";
+  if (level === "action" || level === "success") return "text-success";
+  return "text-muted-foreground";
 }

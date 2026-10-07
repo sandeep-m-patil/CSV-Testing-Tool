@@ -1,49 +1,53 @@
-import { desc, eq } from "drizzle-orm";
-import { credentials } from "@repo/db/schema";
-import { CredentialInputSchema } from "@repo/schemas";
-import { AppError, credentialCrypto } from "@repo/core";
-import { created, ok, parseBody, route } from "@/lib/api";
+import { and, asc, eq, inArray } from "drizzle-orm";
+import { credentials, moduleCredentials } from "@repo/db/schema";
+import { AppError } from "@repo/core";
+import { ModuleCredentialAssignmentSchema } from "@repo/schemas";
+import { ok, parseBody, route } from "@/lib/api";
 import { assertSameOrigin } from "@/lib/csrf";
 import { requireSession } from "@/lib/auth/get-session";
 import { requireModuleAccess } from "@/lib/auth/guards";
 import { db } from "@/lib/db";
-import { maskCredential } from "@/lib/credentials";
+import { maskWithAssignments } from "@/lib/credentials";
 
 type Params = { params: Promise<Record<string, string>> };
 
+/** The project credentials this module references. Credentials live on the project. */
 export const GET = route(async (_request, context: Params) => {
   const session = await requireSession();
-  const routeParams = await context.params;
-const moduleId = routeParams['moduleId']!;
+  const moduleId = (await context.params)["moduleId"]!;
   await requireModuleAccess(moduleId, session);
-  const rows = await db.select().from(credentials).where(eq(credentials.moduleId, moduleId)).orderBy(desc(credentials.createdAt));
-  return ok({ credentials: rows.map(maskCredential) });
+  const rows = await db
+    .select({ credential: credentials })
+    .from(moduleCredentials)
+    .innerJoin(credentials, eq(credentials.id, moduleCredentials.credentialId))
+    .where(eq(moduleCredentials.moduleId, moduleId))
+    .orderBy(asc(credentials.name));
+  return ok({ credentials: await maskWithAssignments(rows.map((row) => row.credential)) });
 });
 
-export const POST = route(async (request, context: Params) => {
+/**
+ * Replaces the module's references. Every id must belong to the module's own
+ * project, so a module can never borrow another project's login.
+ */
+export const PUT = route(async (request, context: Params) => {
   assertSameOrigin(request);
   const session = await requireSession();
-  const routeParams = await context.params;
-const moduleId = routeParams['moduleId']!;
-  await requireModuleAccess(moduleId, session);
+  const moduleId = (await context.params)["moduleId"]!;
+  const { projectId } = await requireModuleAccess(moduleId, session);
+  const { credentialIds } = ModuleCredentialAssignmentSchema.parse(await parseBody(request));
+  const unique = [...new Set(credentialIds)];
 
-  const input = CredentialInputSchema.parse(await parseBody(request));
-  const secretData = credentialCrypto.encryptCredentials(moduleId, input.username, input.password);
-
-  const [credential] = await db
-    .insert(credentials)
-    .values({ moduleId, role: input.role, username: input.username, secretData })
-    .returning()
-    .catch(async (error: unknown) => {
-      const message = error instanceof Error ? error.message : String(error);
-      if (message.toLowerCase().includes("duplicate")) {
-        throw new AppError("DUPLICATE_ROLE", "A credential for this role already exists", 409);
-      }
-      throw error;
-    });
-
-  if (!credential) {
-    throw new AppError("CREATE_FAILED", "Could not save credential", 500);
+  if (unique.length > 0) {
+    const owned = await db
+      .select({ id: credentials.id })
+      .from(credentials)
+      .where(and(eq(credentials.projectId, projectId), inArray(credentials.id, unique)));
+    if (owned.length !== unique.length) throw new AppError("INVALID_CREDENTIAL", "Some credentials do not belong to this project", 400);
   }
-  return created({ credential: maskCredential(credential) });
+
+  await db.transaction(async (tx) => {
+    await tx.delete(moduleCredentials).where(eq(moduleCredentials.moduleId, moduleId));
+    if (unique.length > 0) await tx.insert(moduleCredentials).values(unique.map((credentialId) => ({ moduleId, credentialId })));
+  });
+  return ok({ credentialIds: unique });
 });

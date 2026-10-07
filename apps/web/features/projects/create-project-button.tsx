@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { Plus } from "lucide-react";
+import { Plus, TriangleAlert } from "lucide-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { CreateProjectInputSchema, type CreateProjectInput } from "@repo/schemas";
 import { toast } from "sonner";
@@ -11,7 +11,16 @@ import { queryKeys } from "@/lib/query-keys";
 import { errorToast } from "@/lib/mutation";
 import { titleCase } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
-import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
+import { Checkbox } from "@/components/ui/checkbox";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
 import { Label } from "@/components/ui/label";
@@ -63,7 +72,7 @@ export function CreateProjectButton() {
       <DialogTrigger asChild>
         <Button>
           <Plus className="h-4 w-4" />
-          New Project
+          New project
         </Button>
       </DialogTrigger>
       <DialogContent>
@@ -121,18 +130,27 @@ export function CreateProjectButton() {
             </Select>
           </div>
           {values.environment === "production" && (
-            <label className="flex items-start gap-2 text-sm">
-              <input
-                type="checkbox"
+            <label className="flex cursor-pointer items-start gap-3 rounded-lg border border-warning/40 bg-warning/10 p-3 text-sm text-warning">
+              <Checkbox
                 className="mt-0.5"
                 checked={values.productionConfirmed}
                 onChange={(event) => setValues((prev) => ({ ...prev, productionConfirmed: event.target.checked }))}
               />
-              I explicitly authorise automated discovery against this production environment.
+              <span className="flex-1">
+                <span className="flex items-center gap-1.5 font-medium">
+                  <TriangleAlert className="h-4 w-4" aria-hidden="true" />
+                  Production environment
+                </span>
+                <span className="mt-0.5 block opacity-90">
+                  I explicitly authorise automated discovery against this production environment.
+                </span>
+              </span>
             </label>
           )}
           <div className="space-y-2">
-            <Label htmlFor="project-description">Description</Label>
+            <Label htmlFor="project-description">
+              Description <span className="font-normal text-muted-foreground">(optional)</span>
+            </Label>
             <Textarea
               id="project-description"
               placeholder="What this project covers…"
@@ -140,14 +158,14 @@ export function CreateProjectButton() {
               onChange={(event) => setValues((prev) => ({ ...prev, description: event.target.value }))}
             />
           </div>
-          <div className="flex justify-end gap-2">
+          <DialogFooter>
             <Button type="button" variant="outline" onClick={() => setOpen(false)}>
               Cancel
             </Button>
             <Button type="submit" disabled={submitting}>
               {submitting ? "Creating…" : "Create project"}
             </Button>
-          </div>
+          </DialogFooter>
         </form>
       </DialogContent>
     </Dialog>

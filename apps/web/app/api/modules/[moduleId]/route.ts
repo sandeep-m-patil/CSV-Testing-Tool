@@ -1,11 +1,12 @@
 import { eq } from "drizzle-orm";
-import { credentials, modules, projects, testDataSets, discoverySessions, workflows, testCases } from "@repo/db/schema";
+import { credentials, moduleCredentials, modules, projects, testDataSets, discoverySessions, workflows, testCases } from "@repo/db/schema";
 import { UpdateModuleInputSchema } from "@repo/schemas";
 import { ok, parseBody, route, noContent } from "@/lib/api";
 import { assertSameOrigin } from "@/lib/csrf";
 import { requireSession } from "@/lib/auth/get-session";
 import { requireModuleAccess } from "@/lib/auth/guards";
 import { db } from "@/lib/db";
+import { maskWithAssignments } from "@/lib/credentials";
 
 type Params = { params: Promise<Record<string, string>> };
 
@@ -22,7 +23,11 @@ const moduleId = routeParams['moduleId']!;
   const [project] = await db.select().from(projects).where(eq(projects.id, projectId)).limit(1);
 
   const [credRows, dataRows, sessionRows] = await Promise.all([
-    db.select().from(credentials).where(eq(credentials.moduleId, moduleId)),
+    db
+      .select({ credential: credentials })
+      .from(moduleCredentials)
+      .innerJoin(credentials, eq(credentials.id, moduleCredentials.credentialId))
+      .where(eq(moduleCredentials.moduleId, moduleId)),
     db.select().from(testDataSets).where(eq(testDataSets.moduleId, moduleId)),
     db
       .select()
@@ -32,15 +37,7 @@ const moduleId = routeParams['moduleId']!;
   ]);
   const lastSession = sessionRows[sessionRows.length - 1] ?? null;
 
-  const masks = credRows.map((credential) => ({
-    id: credential.id,
-    moduleId: credential.moduleId,
-    role: credential.role,
-    username: credential.username,
-    hasSecret: credential.secretData.length > 0,
-    createdAt: credential.createdAt.toISOString(),
-    updatedAt: credential.updatedAt.toISOString(),
-  }));
+  const masks = await maskWithAssignments(credRows.map((row) => row.credential));
 
   const dataSets = dataRows.map((dataset) => ({
     id: dataset.id,
@@ -86,8 +83,9 @@ export const DELETE = route(async (request, context: Params) => {
 const moduleId = routeParams['moduleId']!;
   await requireModuleAccess(moduleId, session);
 
+  // Credentials belong to the project and outlive the module; only the module's
+  // references to them go, through the module_credentials cascade.
   await Promise.all([
-    db.delete(credentials).where(eq(credentials.moduleId, moduleId)),
     db.delete(testDataSets).where(eq(testDataSets.moduleId, moduleId)),
     db.delete(workflows).where(eq(workflows.moduleId, moduleId)),
     db.delete(testCases).where(eq(testCases.moduleId, moduleId)),

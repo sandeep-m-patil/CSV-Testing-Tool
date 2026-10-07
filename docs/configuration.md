@@ -16,7 +16,7 @@ All env vars are **app-scoped** — the web app, worker, and db package read the
 | `STORAGE_LOCAL_DIR` | Where local evidence lives; web + worker share `../data/storage`. |
 | `STORAGE_PUBLIC_BASE_URL` | Base URL for public storage URLs, `http://localhost:3000`. |
 | `NEXT_PUBLIC_APP_URL` | Public app base URL, `http://localhost:3000`. |
-| `AI_PROVIDER` | ⚠️ Read but **has no effect** — the provider is never invoked. Defaults to `mock`. See `tech-stack.md` § AI and agent integration status. |
+| `AI_PROVIDER` | `mock` \| `openai` \| `gemini` \| `grok` \| `local`. Used by the page-interpretation endpoint. Defaults to `mock`. |
 
 ## 2. `apps/worker/.env`
 
@@ -35,7 +35,11 @@ All env vars are **app-scoped** — the web app, worker, and db package read the
 | `DISCOVERY_PAGE_SLEEP_MS` | Pause between pages. | `350` |
 | `WORKER_CONCURRENCY` | Parallel discovery jobs (1–8). | `2` |
 | `STORAGE_DRIVER` / `STORAGE_LOCAL_DIR` / `STORAGE_PUBLIC_BASE_URL` | Same as web. | — |
-| `AI_PROVIDER`, `OPENAI_*`, `LOCAL_AI_*` | ⚠️ Accepted but **unused** — no AI provider is ever called, and there is no Gemini implementation. Defaults to `mock`. | `mock` |
+| `AI_PROVIDER`, `OPENAI_*`, `GEMINI_*`, `XAI_*`, `LOCAL_AI_*` | Model for page interpretation, workflow analysis and **test-case generation** (up to 12 grounded cases per page, 10 pages per run). `mock` keeps generation fully deterministic. | `mock` |
+| `TYPESAFE_API_KEY` | Enables the **Jev** browser agent: login on unfamiliar forms, the irreversible-action guard in discovery, and the locator fallback in execution. Unset = off. | — |
+| `JEV_API_URL` | System One endpoint. | `https://api.typesafe.ai/v1/systemone` |
+| `JEV_MODEL` | Jev model id. | `jev-latest` |
+| `JEV_GUARD_IRREVERSIBLE` | Ask Jev before discovery clicks submit-like controls; skip ones it judges irreversible (order, pay, send, delete). | `true` |
 
 ## 3. `packages/db/.env`
 

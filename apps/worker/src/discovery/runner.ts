@@ -1,9 +1,9 @@
 import { chromium, type Browser, type Page } from "playwright";
 import { createAIProvider, type AIProvider } from "@repo/ai";
-import { CredentialCrypto, createChildLogger, createStorage, type StorageProvider } from "@repo/core";
+import { createStorage, type StorageProvider } from "@repo/core";
 import { analyzeCurrentPage, normalizeRoute, resolveLocator, type AnalyzedPage, type DetectedAction } from "@repo/browser";
 import type { Db } from "@repo/db";
-import { credentials, discoveredActions, modules, projects, testDataSets } from "@repo/db/schema";
+import { discoveredActions, modules, projects, testDataSets } from "@repo/db/schema";
 import { and, eq } from "drizzle-orm";
 import { env } from "../env";
 import type { WorkerEnv } from "../env";
@@ -16,6 +16,13 @@ import { pageIdentity, stateFingerprint, stateName, type PageIdentity } from "./
 import { interpretPageWithFallback } from "./ai-enrichment";
 import { buildWorkflows, enrichWithAiAnalysis } from "../workflows/builder";
 import { generateTestCases } from "../test-generation/generator";
+import type { JevAgent } from "../jev/agent";
+import { createJevAgent } from "../jev/factory";
+import { attemptJevLogin, confirmLoginWithJev, hasPasswordField, isIrreversibleByJev, shouldLoginWithJev } from "./jev-assist";
+import { loadModuleCredentials, secretsOf, type ResolvedCredential } from "../credentials";
+
+/** Explores public pages when a module references no usable credential. */
+const ANONYMOUS: DecodedCredential = { id: "", name: "anonymous", role: "anonymous", username: "", password: null, environmentId: null, variables: {} };
 
 export interface RunInput {
   discoverySessionId: string;
@@ -25,13 +32,8 @@ export interface RunInput {
   db: Db;
 }
 
-export interface DecodedCredential {
-  id: string;
-  role: string;
-  /** Nullable: a login may be keyed on a field other than a username. */
-  username: string | null;
-  password: string | null;
-}
+/** A module's credential with its secret decrypted in-process. */
+export type DecodedCredential = ResolvedCredential;
 
 export interface DiscoveryContext {
   sessionId: string;
@@ -50,6 +52,8 @@ export interface DiscoveryContext {
   store: DiscoveryStore;
   storage: StorageProvider;
   ai: AIProvider;
+  /** Jev page agent for logins and irreversibility checks; null when not configured. */
+  jev: JevAgent | null;
 }
 
 interface StepBudget {
@@ -58,8 +62,6 @@ interface StepBudget {
   workflows: number;
 }
 
-const crypto = new CredentialCrypto();
-const log = createChildLogger({ scope: "discovery" });
 
 export async function runDiscovery(input: RunInput): Promise<void> {
   const { discoverySessionId, moduleId, projectId, db } = input;
@@ -74,13 +76,8 @@ export async function runDiscovery(input: RunInput): Promise<void> {
     const [project] = await db.select().from(projects).where(eq(projects.id, projectId)).limit(1);
     if (!project) throw new Error("Project not found");
 
-    const credentialRows = await db.select().from(credentials).where(eq(credentials.moduleId, moduleId));
     const dataSets = await db.select().from(testDataSets).where(eq(testDataSets.moduleId, moduleId));
-
-    const desiredRole = input.role ?? credentialRows[0]?.role ?? null;
-    const decoded = credentialRows
-      .filter((credential) => !input.role || credential.role === input.role)
-      .map((credential) => decodeCredential(credential, moduleId));
+    const decoded = (await loadModuleCredentials(db, moduleId)).filter((credential) => !input.role || credential.role === input.role);
 
     const scope = buildModuleScope({
       baseUrl: project.baseUrl,
@@ -108,12 +105,14 @@ export async function runDiscovery(input: RunInput): Promise<void> {
         publicBaseUrl: env.STORAGE_PUBLIC_BASE_URL,
       }),
       ai: createAIProvider(resolveAiConfig(env)),
+      jev: createJevAgent(env, secretsOf(decoded)),
     };
 
     await store.updateSession({ status: "RUNNING", startedAt: new Date(), error: null });
 
     await store.log("event", `Discovery started for "${module.name}" (${project.environment}) using ${ctx.ai.label}.`);
     await store.log("event", `Module scope: ${describeScope(scope)} (start ${scope.startUrl}).`);
+    await store.log("event", ctx.jev ? `Dynamic browser agent: ${ctx.jev.label}.` : "Dynamic browser agent: off (set TYPESAFE_API_KEY to enable Jev).");
     await store.log("event", `Decrypted credentials available: ${ctx.credentials.map((credential) => credential.role).join(", ") || "none"}.`);
     for (const credential of decoded) {
       if (credential.password === null) {
@@ -129,7 +128,7 @@ export async function runDiscovery(input: RunInput): Promise<void> {
     const budget: StepBudget = { pages: 0, actions: 0, workflows: 0 };
 
     const activeCredentials: DecodedCredential[] =
-      ctx.credentials.length > 0 ? ctx.credentials : [{ id: "", role: "anonymous", username: "", password: null }];
+      ctx.credentials.length > 0 ? ctx.credentials : [ANONYMOUS];
 
     for (const credential of activeCredentials) {
       if (budget.pages >= env.DISCOVERY_MAX_PAGES || budget.actions >= env.DISCOVERY_MAX_STEPS) break;
@@ -206,6 +205,8 @@ async function exploreAsRole(browser: Browser, ctx: DiscoveryContext, credential
     fillCount: 0,
     navigationDepth: 0,
     navigationDepthBudget: env.DISCOVERY_NAVIGATION_DEPTH,
+    loginChecks: new Map<string, boolean>(),
+    isJevLoginAttempted: false,
   };
 
   try {
@@ -242,7 +243,9 @@ async function enterModuleScope(
   if (isInScope(ctx.scope, currentUrl)) return true;
 
   const outside = await analyzeCurrentPage(page, navOptions(ctx));
-  if (outside && looksLikeLogin(outside)) {
+  // SSO and hosted login gates usually live on another origin, so this is
+  // where a non-English or non-standard login screen must be recognised.
+  if (outside && (looksLikeLogin(outside) || (hasPasswordField(outside) && (await confirmLoginWithJev(ctx, page, actor))))) {
     actor.onLoginPage = true;
     return true;
   }
@@ -331,7 +334,22 @@ async function explorePage(
     freshActions.forEach((action) => persistedActionKeys.add(actionKey(action)));
 
     const space = buildActionSpace(analyzed.snapshot.elements, analyzed.actions);
-    actor.onLoginPage = looksLikeLogin(analyzed);
+    actor.onLoginPage = looksLikeLogin(analyzed) || (hasPasswordField(analyzed) && (await confirmLoginWithJev(ctx, page, actor)));
+
+    if (shouldLoginWithJev(ctx, actor, space)) {
+      const loginStartUrl = page.url();
+      const isSignedIn = await attemptJevLogin(ctx, page, actor);
+      budget.actions += 1;
+      // Marks the login page as exercised so auth cases are generated for it.
+      const passwordAction = space.find((item) => item.element?.inputType === "password");
+      const passwordRowId = passwordAction ? actionIds[actionKey(passwordAction.action)] : undefined;
+      if (passwordRowId) await ctx.store.setExecuted(passwordRowId);
+      if (isSignedIn && page.url() !== loginStartUrl) {
+        await explorePage(page, ctx, actor, budget, visitedUrls, depth + 1, role);
+        return;
+      }
+      continue;
+    }
 
     const decision = decideOneAction(space, actor);
     if (decision.index === null) {
@@ -341,6 +359,12 @@ async function explorePage(
 
     const chosen = space.find((item) => item.index === decision.index);
     if (!chosen) break;
+
+    if (await isIrreversibleByJev(ctx, page, { chosen, actor })) {
+      actor.executedKeys.add(actionKey(chosen.action));
+      actionsOnPage += 1;
+      continue;
+    }
 
     const stepStartUrl = page.url();
     const executed = await executeOne(ctx, page, chosen, decision);
@@ -588,43 +612,6 @@ export async function executeOne(
 }
 
 // ---------- helpers ----------
-
-/**
- * Decrypt a stored credential.
- *
- * The encryption scope must match apps/web/app/api/modules/[moduleId]/credentials/route.ts,
- * which encrypts with the module id. `secretData` holds "iv:authTag:ciphertext", not JSON,
- * so a JSON parse is only attempted to detect seeded placeholder rows.
- */
-function decodeCredential(
-  credential: { id: string; role: string; username: string | null; secretData: string },
-  moduleId: string,
-): DecodedCredential {
-  const base = { id: credential.id, role: credential.role, username: credential.username, password: null };
-
-  if (isPlaceholderSecret(credential.secretData)) return base;
-
-  try {
-    const decrypted = crypto.decryptCredentials(moduleId, credential.secretData);
-    return decrypted?.password ? { ...base, password: decrypted.password } : base;
-  } catch (error) {
-    log.warn(
-      { role: credential.role, error },
-      "credential decryption failed",
-    );
-    return base;
-  }
-}
-
-function isPlaceholderSecret(secretData: string): boolean {
-  try {
-    const parsed: unknown = JSON.parse(secretData);
-    return typeof parsed === "object" && parsed !== null && "placeholder" in parsed;
-  } catch {
-    // Ciphertext is not JSON, so it is a real (encrypted) credential.
-    return false;
-  }
-}
 
 function buildRowPool(dataValues: unknown[]): Array<Record<string, string>> {
   const pool: Array<Record<string, string>> = [];
