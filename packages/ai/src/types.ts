@@ -1,5 +1,7 @@
 import type {
   AiPageContext,
+  AiPageDecision,
+  AiPageDecisionInput,
   AiPageInterpretation,
   AiTestCaseContext,
   AiTestCaseSuggestions,
@@ -22,6 +24,12 @@ export interface AIProvider {
    * case that references something it did not observe.
    */
   generateTestCases(context: AiTestCaseContext): Promise<AiTestCaseSuggestions>;
+  /**
+   * One browser-agent decision: which numbered element, a yes/no answer, or
+   * the next operation toward a goal. Playwright performs any action; the
+   * reply is schema-checked and a malformed one is "no decision".
+   */
+  decidePageAction(input: AiPageDecisionInput): Promise<AiPageDecision>;
 }
 
 export type AIProviderKind = AIProvider["kind"];

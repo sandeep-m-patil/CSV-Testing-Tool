@@ -1,10 +1,12 @@
 "use client";
 
+import { useState } from "react";
 import { FileJson, Printer } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import type { TestRunResultRecord, TestRunSummary } from "@/features/hooks";
 import { Stat, StatusBadge, StatusIcon, passRate } from "./status";
-import { CaseSteps } from "./case-steps";
+import { EvidenceViewer } from "@/components/ui/evidence-viewer";
+import { CaseSteps, stepEvidenceItems } from "./case-steps";
 import { RunMeta } from "./test-result-grid";
 
 interface Props {
@@ -31,6 +33,11 @@ export function TestRunReport({ run, module, results, onDownloadJson }: Props) {
   const blocked = results.filter((row) => row.status === "BLOCKED").length;
   const skipped = results.filter((row) => row.status === "SKIP").length;
   const withShot = results.filter((row) => row.screenshotUrl).length;
+  // One gallery over every step screenshot in report order, so Next continues into the following case.
+  const [galleryIndex, setGalleryIndex] = useState<number | null>(null);
+  const perCase = results.map((row) => stepEvidenceItems(row.stepResults, row.code));
+  const offsets = perCase.map((_, index) => perCase.slice(0, index).reduce((total, items) => total + items.length, 0));
+  const galleryItems = perCase.flat();
 
   return (
     <div className="print-report space-y-6">
@@ -80,11 +87,12 @@ export function TestRunReport({ run, module, results, onDownloadJson }: Props) {
         </div>
       ) : (
         <div className="space-y-4">
-          {results.map((row) => (
-            <CaseReportBlock key={row.id} row={row} />
+          {results.map((row, index) => (
+            <CaseReportBlock key={row.id} row={row} onOpenStep={(stepIndex) => setGalleryIndex(offsets[index]! + stepIndex)} />
           ))}
         </div>
       )}
+      <EvidenceViewer items={galleryItems} index={galleryIndex} onIndexChange={setGalleryIndex} />
     </div>
   );
 }
@@ -98,7 +106,7 @@ function Meta({ label, value }: { label: string; value: string }) {
   );
 }
 
-function CaseReportBlock({ row }: { row: TestRunResultRecord }) {
+function CaseReportBlock({ row, onOpenStep }: { row: TestRunResultRecord; onOpenStep: (index: number) => void }) {
   return (
     <article className="print-card print-block overflow-hidden rounded-xl border bg-card">
       <header className="flex flex-wrap items-center gap-3 border-b px-4 py-3">
@@ -131,7 +139,7 @@ function CaseReportBlock({ row }: { row: TestRunResultRecord }) {
 
       <div className="border-t px-4 py-3">
         {row.stepResults.length > 0 ? (
-          <CaseSteps steps={row.stepResults} attempts={row.attempts} onOpenImage={(url) => window.open(url, "_blank", "noreferrer")} />
+          <CaseSteps steps={row.stepResults} attempts={row.attempts} onOpenStep={onOpenStep} />
         ) : row.screenshotUrl ? (
           <a href={row.screenshotUrl} target="_blank" rel="noreferrer" className="print-evidence block" title="Open full size">
             <img src={row.screenshotUrl} alt={`Evidence for ${row.code}`} className="block h-auto w-full rounded border" />

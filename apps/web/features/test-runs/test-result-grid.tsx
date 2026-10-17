@@ -5,9 +5,9 @@ import { ChevronDown, ChevronRight } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import type { TestRunResultRecord, TestRunSummary } from "@/features/hooks";
-import { CaseSteps } from "./case-steps";
+import { CaseSteps, stepEvidenceItems } from "./case-steps";
 import { Pagination, usePagination } from "./pagination";
-import { ScreenshotLightbox, type LightboxImage } from "./screenshot-lightbox";
+import { EvidenceViewer, type EvidenceItem } from "@/components/ui/evidence-viewer";
 import { STATUS_FILTERS, Stat, StatusBadge, StatusIcon, passRate, type StatusFilter } from "./status";
 
 const STICKY_TH = "sticky top-0 z-10 bg-muted/95 px-3 py-2 backdrop-blur";
@@ -48,10 +48,13 @@ export function RunMeta({ run }: { run: TestRunSummary }) {
 export function TestResultGrid({ results }: { results: TestRunResultRecord[] }) {
   const [filter, setFilter] = useState<StatusFilter>("ALL");
   const [expanded, setExpanded] = useState<string | null>(null);
-  const [lightbox, setLightbox] = useState<LightboxImage | null>(null);
+  const [gallery, setGallery] = useState<{ items: EvidenceItem[]; index: number } | null>(null);
 
   const filtered = filter === "ALL" ? results : results.filter((row) => row.status === filter);
   const pager = usePagination(filtered);
+  // Final screenshots of the visible rows, so Previous/Next walks the grid.
+  const finals = pager.visible.filter((row) => row.screenshotUrl);
+  const finalItems: EvidenceItem[] = finals.map((row) => ({ url: row.screenshotUrl!, title: `${row.code} ${row.name}`, subtitle: row.status }));
 
   return (
     <div className="space-y-3">
@@ -81,11 +84,16 @@ export function TestResultGrid({ results }: { results: TestRunResultRecord[] }) 
           <tbody>
             {pager.visible.map((row) => (
               <Fragment key={row.id}>
-                <ResultRow row={row} isExpanded={expanded === row.id} onToggle={() => setExpanded(expanded === row.id ? null : row.id)} onOpenImage={setLightbox} />
+                <ResultRow
+                  row={row}
+                  isExpanded={expanded === row.id}
+                  onToggle={() => setExpanded(expanded === row.id ? null : row.id)}
+                  onOpenFinal={() => setGallery({ items: finalItems, index: finals.indexOf(row) })}
+                />
                 {expanded === row.id && (
                   <tr className="border-b bg-muted/10">
                     <td colSpan={COLUMN_COUNT} className="p-3">
-                      <CaseSteps steps={row.stepResults} attempts={row.attempts} onOpenImage={(url, title) => setLightbox({ url, title })} />
+                      <CaseSteps steps={row.stepResults} attempts={row.attempts} onOpenStep={(index) => setGallery({ items: stepEvidenceItems(row.stepResults, row.code), index })} />
                     </td>
                   </tr>
                 )}
@@ -97,7 +105,11 @@ export function TestResultGrid({ results }: { results: TestRunResultRecord[] }) 
       </div>
 
       <Pagination {...pager} />
-      <ScreenshotLightbox image={lightbox} onClose={() => setLightbox(null)} />
+      <EvidenceViewer
+        items={gallery?.items ?? []}
+        index={gallery?.index ?? null}
+        onIndexChange={(index) => setGallery(index === null || !gallery ? null : { ...gallery, index })}
+      />
     </div>
   );
 }
@@ -106,10 +118,10 @@ interface RowProps {
   row: TestRunResultRecord;
   isExpanded: boolean;
   onToggle: () => void;
-  onOpenImage: (image: LightboxImage) => void;
+  onOpenFinal: () => void;
 }
 
-function ResultRow({ row, isExpanded, onToggle, onOpenImage }: RowProps) {
+function ResultRow({ row, isExpanded, onToggle, onOpenFinal }: RowProps) {
   return (
     <tr className="cursor-pointer border-b align-top last:border-b-0 hover:bg-muted/20" onClick={onToggle}>
       <td className="px-2 py-2 text-muted-foreground">{isExpanded ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}</td>
@@ -139,7 +151,7 @@ function ResultRow({ row, isExpanded, onToggle, onOpenImage }: RowProps) {
             type="button"
             onClick={(event) => {
               event.stopPropagation();
-              onOpenImage({ url: row.screenshotUrl!, title: `${row.code} ${row.name}` });
+              onOpenFinal();
             }}
             className="overflow-hidden rounded border transition hover:opacity-80"
             aria-label="View screenshot"

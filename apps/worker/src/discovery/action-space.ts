@@ -70,10 +70,10 @@ export interface ActorContext {
   fillCount: number;
   navigationDepth: number;
   navigationDepthBudget: number;
-  /** Jev's login-screen verdict per URL, so each page costs at most one call. */
+  /** The AI's login-screen verdict per URL, so each page costs at most one call. */
   loginChecks: Map<string, boolean>;
-  /** Jev signs in at most once per role; after that the heuristics take over. */
-  isJevLoginAttempted: boolean;
+  /** The browser agent signs in at most once per role; after that the heuristics take over. */
+  isAgentLoginAttempted: boolean;
 }
 
 export type DecisionKind = "fill" | "submit-login" | "submit-form" | "navigate" | "click" | "review" | "none";
@@ -167,7 +167,7 @@ export function decideOneAction(space: IndexedAction[], ctx: ActorContext): Acto
 /**
  * True when the deterministic login sequence can find both credential fields.
  * When it cannot (non-English labels, phone-number logins, custom widgets),
- * discovery hands the login to Jev instead of filling the form with guesses.
+ * discovery hands the login to the browser agent instead of filling the form with guesses.
  */
 export function hasHeuristicLoginFields(space: IndexedAction[], ctx: ActorContext): boolean {
   if (!ctx.roleUsername) return false;

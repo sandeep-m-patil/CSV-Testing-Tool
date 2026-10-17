@@ -1,6 +1,7 @@
 import { and, eq } from "drizzle-orm";
 import { environments, projects, testRuns } from "@repo/db/schema";
-import { AppError, createTestRunQueue, enqueueJob, TEST_RUN_JOB_NAME } from "@repo/core";
+import { enqueueJob } from "@repo/db";
+import { AppError, TEST_RUN_ATTEMPTS, TEST_RUN_JOB_NAME, TEST_RUN_QUEUE } from "@repo/core";
 import type { StartTestRunInput } from "@repo/schemas";
 import { db } from "@/lib/db";
 
@@ -18,9 +19,6 @@ export interface EnqueueTestRunInput {
 }
 
 export async function enqueueTestRun(input: EnqueueTestRunInput): Promise<string> {
-  if (!process.env.REDIS_URL) {
-    throw new AppError("REDIS_UNCONFIGURED", "Redis is not configured. Start it with `docker compose up redis` and set REDIS_URL.", 503);
-  }
   const options = input.options ?? {};
   const baseUrl = await resolveTargetUrl(input.projectId, options.environmentId ?? null);
 
@@ -44,11 +42,11 @@ export async function enqueueTestRun(input: EnqueueTestRunInput): Promise<string
   if (!runRow) throw new AppError("TEST_RUN_FAILED", "Could not create test run", 500);
 
   try {
-    await enqueueJob(createTestRunQueue(process.env.REDIS_URL), TEST_RUN_JOB_NAME, {
-      testRunId: runRow.id,
-      moduleId: input.moduleId,
-      projectId: input.projectId,
-      triggeredBy: input.triggeredBy,
+    await enqueueJob(db, {
+      queue: TEST_RUN_QUEUE,
+      name: TEST_RUN_JOB_NAME,
+      maxAttempts: TEST_RUN_ATTEMPTS,
+      data: { testRunId: runRow.id, moduleId: input.moduleId, projectId: input.projectId, triggeredBy: input.triggeredBy },
     });
   } catch (error) {
     await db

@@ -36,3 +36,33 @@ describe("resolveUploadFile", () => {
     await expect(resolveUploadFile(".env", "./fixtures")).rejects.toThrow(StepBlockedError);
   });
 });
+
+describe("GOAL steps", () => {
+  const goal = { order: 2, action: "GOAL" as const, target: "Register sample S-1 for Chemistry", stepType: "action" as const };
+
+  it("are blocked when no AI model is configured", async () => {
+    const { createFakePage } = await import("../browser-agent/fake-page");
+    const { runStepWithRecovery } = await import("./step-runner");
+    await expect(runStepWithRecovery(createFakePage([]).page, goal, { resolver: null, agent: null, uploadDir: "." })).rejects.toThrow(StepBlockedError);
+  });
+
+  it("pass when the agent reaches the goal, and report the AI as the resolver", async () => {
+    const { createFakePage, createScriptedAI } = await import("../browser-agent/fake-page");
+    const { PageAgent } = await import("../browser-agent/agent");
+    const { runStepWithRecovery } = await import("./step-runner");
+    const agent = new PageAgent(createScriptedAI([{ operation: "CLICK", ref: 1, confidence: 0.9 }, { operation: "DONE", confidence: 0.9 }]).ai, { secrets: [] });
+    const page = createFakePage([{ i: 1, tag: "button", label: "Register" }]).page;
+    await expect(runStepWithRecovery(page, goal, { resolver: null, agent, uploadDir: "." })).resolves.toBe("ai");
+  });
+
+  it("fail (not block) when the application shows an error", async () => {
+    const { createFakePage, createScriptedAI } = await import("../browser-agent/fake-page");
+    const { PageAgent } = await import("../browser-agent/agent");
+    const { runStepWithRecovery } = await import("./step-runner");
+    const agent = new PageAgent(createScriptedAI([{ operation: "CLICK", ref: 1, confidence: 0.9 }, { operation: "ERROR", confidence: 0.9 }]).ai, { secrets: [] });
+    const page = createFakePage([{ i: 1, tag: "button", label: "Register" }]).page;
+    const error = await runStepWithRecovery(page, goal, { resolver: null, agent, uploadDir: "." }).catch((caught: unknown) => caught);
+    expect(error).toBeInstanceOf(Error);
+    expect(isBlockingError(error)).toBe(false);
+  });
+});

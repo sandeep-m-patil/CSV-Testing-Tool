@@ -5,6 +5,8 @@ import { DATABASE_URL } from "./url";
 
 export * as schema from "./schema/index";
 export * from "./schema/index";
+export * from "./job-queue";
+export * from "./job-worker";
 
 export type Db = PostgresJsDatabase<typeof schema>;
 

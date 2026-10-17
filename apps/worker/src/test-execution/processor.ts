@@ -1,10 +1,11 @@
-import type { Job } from "bullmq";
-import { getDb } from "@repo/db";
-import { createChildLogger, createStorage, type TestRunJobData } from "@repo/core";
+import { getDb, type QueueJob } from "@repo/db";
+import { createChildLogger, type TestRunJobData } from "@repo/core";
+import { getWorkerStorage } from "../storage";
 import { env } from "../env";
 import { secretsOf } from "../credentials";
-import { createJevAgent } from "../jev/factory";
-import { createJevResolver } from "./semantic-target";
+import { getWorkerAI } from "../ai";
+import { createPageAgent } from "../browser-agent/factory";
+import { createAgentResolver } from "./semantic-target";
 import { launchBrowser } from "./browsers";
 import { runCaseWithRetries } from "./case-runner";
 import type { RunContext } from "./executor";
@@ -25,7 +26,7 @@ const log = createChildLogger({ scope: "test-run-processor" });
  * Cases run on `workers` parallel contexts. One failing case never stops the
  * run unless fail-fast was requested.
  */
-export async function processTestRunJob(job: Job<TestRunJobData>): Promise<void> {
+export async function processTestRunJob(job: QueueJob<TestRunJobData>): Promise<void> {
   const { testRunId, moduleId } = job.data;
   const db = getDb();
   const startedAt = Date.now();
@@ -60,15 +61,17 @@ export async function processTestRunJob(job: Job<TestRunJobData>): Promise<void>
 async function executePlan(plan: RunPlan, ids: { testRunId: string; moduleId: string }): Promise<{ isStopped: boolean; started: number }> {
   const db = getDb();
   const secrets = secretsOf(plan.credentials);
+  const agent = createPageAgent(getWorkerAI(), secrets);
   const browser = await launchBrowser(plan.options.browser, env.BROWSER_HEADLESS);
   const ctx: RunContext = {
     browser,
-    storage: createStorage({ driver: env.STORAGE_DRIVER, localDir: env.STORAGE_LOCAL_DIR, publicBaseUrl: env.STORAGE_PUBLIC_BASE_URL }),
+    storage: getWorkerStorage(),
     moduleId: ids.moduleId,
     runId: ids.testRunId,
     secrets,
     uploadDir: env.UPLOAD_FIXTURES_DIR,
-    resolver: createJevResolver(createJevAgent(env, secrets), (message) => log.info(ids, message)),
+    resolver: createAgentResolver(agent, (message) => log.info(ids, message)),
+    agent,
     log: (message) => log.warn(ids, message),
   };
 

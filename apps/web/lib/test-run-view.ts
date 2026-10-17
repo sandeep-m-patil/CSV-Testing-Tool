@@ -1,7 +1,7 @@
 import { z } from "zod";
 import type { testRuns } from "@repo/db/schema";
-import type { StorageProvider } from "@repo/core";
 import { AttemptRecordSchema, StepResultSchema, formatRunId, type AttemptRecord, type StepResult } from "@repo/schemas";
+import { evidenceUrl } from "./evidence-key";
 
 /**
  * Shapes stored run data for the report. Attempts and step results are JSON
@@ -35,8 +35,8 @@ interface ResultRow {
   stepResults: unknown;
 }
 
-export function presentResult<T extends ResultRow>(row: T, storage: StorageProvider) {
-  const url = (key: string | null) => (key ? storage.getPublicUrl(key) : null);
+export function presentResult<T extends ResultRow>(row: T) {
+  const url = (key: string | null) => (key ? evidenceUrl(key) : null);
   return {
     ...row,
     code: row.code ?? `TC-${String(row.order + 1).padStart(4, "0")}`,

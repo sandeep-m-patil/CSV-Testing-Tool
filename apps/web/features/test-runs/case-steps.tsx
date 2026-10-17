@@ -2,14 +2,24 @@
 
 import { Sparkles } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
+import type { EvidenceItem } from "@/components/ui/evidence-viewer";
 import type { AttemptView, StepView } from "@/features/hooks";
 import { StatusBadge, StatusIcon } from "./status";
 
+/** Gallery items for a case's step screenshots, in step order; `prefix` names the case. */
+export function stepEvidenceItems(steps: StepView[], prefix: string): EvidenceItem[] {
+  return steps
+    .filter((step) => step.screenshotUrl)
+    .map((step) => ({ url: step.screenshotUrl!, title: `${prefix} · Step ${step.order}: ${step.action} ${step.target}`, subtitle: `${step.status} · ${step.durationMs} ms` }));
+}
+
 /**
  * Screenshot-first evidence for one case: each step with its own screenshot,
- * then the attempt history when the case was retried.
+ * then the attempt history when the case was retried. `onOpenStep` receives the
+ * index among this case's steps that have a screenshot.
  */
-export function CaseSteps({ steps, attempts, onOpenImage }: { steps: StepView[]; attempts: AttemptView[]; onOpenImage?: (url: string, title: string) => void }) {
+export function CaseSteps({ steps, attempts, onOpenStep }: { steps: StepView[]; attempts: AttemptView[]; onOpenStep?: (index: number) => void }) {
+  const withShots = steps.filter((step) => step.screenshotUrl);
   return (
     <div className="space-y-3">
       {attempts.length > 1 && <AttemptTimeline attempts={attempts} />}
@@ -18,7 +28,7 @@ export function CaseSteps({ steps, attempts, onOpenImage }: { steps: StepView[];
       ) : (
         <ol className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
           {steps.map((step) => (
-            <StepCard key={step.order} step={step} onOpenImage={onOpenImage} />
+            <StepCard key={step.order} step={step} onOpen={() => onOpenStep?.(withShots.indexOf(step))} />
           ))}
         </ol>
       )}
@@ -26,12 +36,12 @@ export function CaseSteps({ steps, attempts, onOpenImage }: { steps: StepView[];
   );
 }
 
-function StepCard({ step, onOpenImage }: { step: StepView; onOpenImage?: (url: string, title: string) => void }) {
+function StepCard({ step, onOpen }: { step: StepView; onOpen: () => void }) {
   const title = `Step ${step.order}: ${step.action} ${step.target}`;
   return (
     <li className="print-block overflow-hidden rounded-lg border bg-card">
       {step.screenshotUrl ? (
-        <button type="button" className="block w-full border-b bg-muted/30" onClick={() => onOpenImage?.(step.screenshotUrl!, title)} aria-label={`Open screenshot for step ${step.order}`}>
+        <button type="button" className="block w-full border-b bg-muted/30" onClick={onOpen} aria-label={`Open screenshot for step ${step.order}`}>
           <img src={step.screenshotUrl} alt={title} className="block aspect-video w-full object-cover object-top" />
         </button>
       ) : (
@@ -42,10 +52,10 @@ function StepCard({ step, onOpenImage }: { step: StepView; onOpenImage?: (url: s
           <StatusIcon status={step.status} />
           <span className="text-xs font-semibold">Step {step.order}</span>
           <code className="rounded bg-muted px-1 text-[11px]">{step.action}</code>
-          {step.resolvedBy === "jev" && (
+          {step.resolvedBy === "ai" && (
             <Badge variant="info" className="gap-1 px-1.5 py-0 text-[10px]">
               <Sparkles className="h-3 w-3" />
-              Jev
+              AI
             </Badge>
           )}
           <span className="ml-auto text-[11px] tabular-nums text-muted-foreground">{step.durationMs} ms</span>

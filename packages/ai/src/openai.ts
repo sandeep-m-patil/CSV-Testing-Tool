@@ -2,6 +2,8 @@ import {
   AiPageInterpretationSchema,
   AiWorkflowAnalysisSchema,
   type AiPageContext,
+  type AiPageDecision,
+  type AiPageDecisionInput,
   type AiPageInterpretation,
   type AiTestCaseContext,
   type AiTestCaseSuggestions,
@@ -10,6 +12,7 @@ import {
 import type { AIProvider } from "./types";
 import { sanitizePageContext } from "./sanitize";
 import { buildTestCaseTask, parseTestCaseSuggestions } from "./test-case-task";
+import { buildPageDecisionTask, parsePageDecision } from "./page-decision-task";
 
 export interface OpenAICompatibleOptions {
   label: string;
@@ -106,5 +109,9 @@ export class OpenAICompatibleProvider implements AIProvider {
 
   async generateTestCases(context: AiTestCaseContext): Promise<AiTestCaseSuggestions> {
     return parseTestCaseSuggestions(await chatJson(this.options, buildTestCaseTask(context)));
+  }
+
+  async decidePageAction(input: AiPageDecisionInput): Promise<AiPageDecision> {
+    return parsePageDecision(await chatJson(this.options, buildPageDecisionTask(input)));
   }
 }

@@ -21,6 +21,8 @@ import { ModuleForm } from "@/features/modules/module-form";
 import { CredentialsCard } from "@/features/projects/credentials-card";
 import { EnvironmentsCard } from "@/features/projects/environments-card";
 import { RolesCard } from "@/features/projects/roles-card";
+import { ProjectRunsCard } from "@/features/test-runs/project-runs-card";
+import { RunAllButton } from "@/features/test-runs/run-all-button";
 
 export default function ProjectDetailPage() {
   const params = useParams<{ projectId: string }>();
@@ -57,6 +59,7 @@ export default function ProjectDetailPage() {
         actions={
           <>
             <ProvisionProjectButton projectId={projectId} />
+            <RunAllButton projectId={projectId} enabledModuleCount={modules.filter((module) => module.status !== "DISABLED").length} />
             <Button
               variant={addingModule ? "secondary" : "default"}
               onClick={() => setAddingModule((value) => !value)}
@@ -92,6 +95,8 @@ export default function ProjectDetailPage() {
         {addingModule && <ModuleForm projectId={projectId} onDone={() => setAddingModule(false)} />}
         <ProjectModuleList modules={modules} />
       </section>
+
+      <ProjectRunsCard projectId={projectId} />
 
       <section className="space-y-4" aria-labelledby="configuration-heading">
         <SectionHeader

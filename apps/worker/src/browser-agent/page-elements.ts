@@ -1,23 +1,25 @@
 import type { Locator, Page } from "playwright";
-import { JEV_MAX_CHOICES } from "@repo/ai";
 import { ensureRuntimeHelpers } from "@repo/browser";
-import { scrubForJev } from "./redact";
+import { scrubForAgent } from "./redact";
 
 /**
- * Builds the page description Jev decides over: a numbered list of visible,
+ * Builds the page description the AI model decides over: a numbered list of visible,
  * interactive elements plus a short excerpt of visible text.
  *
- * Each listed element is tagged with a data attribute so the number Jev picks
+ * Each listed element is tagged with a data attribute so the number the model picks
  * maps back to exactly one node, which Playwright then acts on. Input *values*
  * are never read; only whether a field is filled.
  */
 
-export const JEV_ATTRIBUTE = "data-autotest-jev";
+export const AGENT_ATTRIBUTE = "data-autotest-agent";
+/** Upper bound on listed controls, keeping one decision request small. */
+const MAX_ELEMENTS = 240;
+const MAX_OPTIONS = 50;
 const MAX_LABEL_LENGTH = 80;
 const MAX_PAGE_TEXT = 1500;
-const HELPERS_KEY = "__autotestJev";
+const HELPERS_KEY = "__autotestAgent";
 
-export interface JevElement {
+export interface AgentElement {
   i: number;
   tag: string;
   role?: string;
@@ -28,13 +30,15 @@ export interface JevElement {
   filled?: boolean;
   checked?: boolean;
   disabled?: boolean;
+  /** Visible option labels of a native <select>. */
+  options?: string[];
 }
 
-export interface JevPageState {
+export interface AgentPageState {
   url: string;
   title: string;
   text: string;
-  elements: JevElement[];
+  elements: AgentElement[];
 }
 
 interface InPageHelpers {
@@ -70,13 +74,13 @@ function installHelpers({ key, maxLabel }: { key: string; maxLabel: number }): v
 }
 
 /** Runs inside the page: numbers every visible interactive element. */
-function enumerate({ key, attribute, max }: { key: string; attribute: string; max: number }): { text: string; elements: JevElement[] } {
+function enumerate({ key, attribute, max, maxOptions }: { key: string; attribute: string; max: number; maxOptions: number }): { text: string; elements: AgentElement[] } {
   const helpers = (window as unknown as Record<string, InPageHelpers>)[key]!;
   const selector = "a[href],button,input:not([type=hidden]),select,textarea,summary,[contenteditable=true],"
     + "[role=button],[role=link],[role=checkbox],[role=radio],[role=tab],[role=menuitem],[role=option],[role=switch],[role=combobox]";
   document.querySelectorAll(`[${attribute}]`).forEach((node) => node.removeAttribute(attribute));
 
-  const elements: JevElement[] = [];
+  const elements: AgentElement[] = [];
   for (const node of Array.from(document.querySelectorAll<HTMLElement>(selector))) {
     if (elements.length >= max || !helpers.isVisible(node)) continue;
     const i = elements.length + 1;
@@ -95,38 +99,40 @@ function enumerate({ key, attribute, max }: { key: string; attribute: string; ma
       filled: isFillable ? input.value.length > 0 : undefined,
       checked: isCheckable ? input.checked : undefined,
       disabled: (node as HTMLButtonElement).disabled || undefined,
+      options: node instanceof HTMLSelectElement ? Array.from(node.options).slice(0, maxOptions).map((option) => helpers.clean(option.text) ?? "") : undefined,
     });
   }
   return { text: document.body?.innerText ?? "", elements };
 }
 
 /** Snapshot of the page, scrubbed of known secrets and personal data. */
-export async function observePage(page: Page, secrets: readonly string[]): Promise<JevPageState> {
+export async function observePage(page: Page, secrets: readonly string[]): Promise<AgentPageState> {
   await ensureRuntimeHelpers(page);
   await page.evaluate(installHelpers, { key: HELPERS_KEY, maxLabel: MAX_LABEL_LENGTH });
-  const raw = await page.evaluate(enumerate, { key: HELPERS_KEY, attribute: JEV_ATTRIBUTE, max: JEV_MAX_CHOICES });
+  const raw = await page.evaluate(enumerate, { key: HELPERS_KEY, attribute: AGENT_ATTRIBUTE, max: MAX_ELEMENTS, maxOptions: MAX_OPTIONS });
   const scrub = (value: string | undefined): string | undefined =>
-    value === undefined ? undefined : scrubForJev(value, secrets, MAX_LABEL_LENGTH);
+    value === undefined ? undefined : scrubForAgent(value, secrets, MAX_LABEL_LENGTH);
   return {
-    url: scrubForJev(page.url(), secrets, MAX_LABEL_LENGTH * 2),
-    title: scrubForJev(await page.title().catch(() => ""), secrets, MAX_LABEL_LENGTH),
-    text: scrubForJev(raw.text.replace(/\s+/g, " "), secrets, MAX_PAGE_TEXT),
+    url: scrubForAgent(page.url(), secrets, MAX_LABEL_LENGTH * 2),
+    title: scrubForAgent(await page.title().catch(() => ""), secrets, MAX_LABEL_LENGTH),
+    text: scrubForAgent(raw.text.replace(/\s+/g, " "), secrets, MAX_PAGE_TEXT),
     elements: raw.elements.map((element) => ({
       ...element,
       label: scrub(element.label),
       placeholder: scrub(element.placeholder),
       href: scrub(element.href),
+      options: element.options?.map((option) => scrub(option) ?? ""),
     })),
   };
 }
 
-/** The node Jev picked, by the number it was listed under. */
-export function locateJevElement(page: Page, i: number): Locator {
-  return page.locator(`[${JEV_ATTRIBUTE}="${i}"]`).first();
+/** The node the model picked, by the number it was listed under. */
+export function locateAgentElement(page: Page, i: number): Locator {
+  return page.locator(`[${AGENT_ATTRIBUTE}="${i}"]`).first();
 }
 
-/** Short human description of an element, for logs and Jev's action history. */
-export function describeJevElement(element: JevElement | undefined): string {
+/** Short human description of an element, for logs and the agent's action history. */
+export function describeAgentElement(element: AgentElement | undefined): string {
   if (!element) return "unknown element";
   return `${element.tag}${element.type ? `[${element.type}]` : ""} "${element.label ?? element.placeholder ?? ""}"`;
 }

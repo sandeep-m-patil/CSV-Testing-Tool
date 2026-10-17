@@ -1,16 +1,15 @@
-import type { Job } from "bullmq";
-import { getDb } from "@repo/db";
+import { getDb, type QueueJob } from "@repo/db";
 import { createChildLogger, type DiscoveryJobData } from "@repo/core";
 import { runDiscovery } from "./discovery/runner";
 
 const log = createChildLogger({ scope: "discovery-processor" });
 
 /**
- * BullMQ processor for DISCOVERY_JOB_NAME.
+ * Queue handler for DISCOVERY_JOB_NAME.
  * Loads row data from the queue, spins up a browser session, and runs the
  * indexed action-space discovery loop for the module.
  */
-export async function processDiscoveryJob(job: Job<DiscoveryJobData>): Promise<void> {
+export async function processDiscoveryJob(job: QueueJob<DiscoveryJobData>): Promise<void> {
   const { discoverySessionId, moduleId, projectId, role } = job.data;
   const db = getDb();
 

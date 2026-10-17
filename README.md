@@ -12,7 +12,7 @@ pnpm-workspace TypeScript.
 
 | Document | What it covers |
 | --- | --- |
-| [tech-stack](docs/tech-stack.md) | Stack, architecture diagram, workflows, data model, and the verified Gemini/Jev integration status |
+| [tech-stack](docs/tech-stack.md) | Stack, architecture diagram, workflows, data model, and the AI integration status |
 | [requirements](docs/requirements.md) | Full feature matrix with per-item implementation status, and the 32-step acceptance scenario |
 | [user manual](docs/user-manual.md) | How to actually use it: projects, modules, credentials, discovery, runs, reports, troubleshooting |
 | [features](docs/features.md) | Feature inventory with status |
@@ -20,12 +20,12 @@ pnpm-workspace TypeScript.
 | [configuration](docs/configuration.md) | Environment variables |
 | [example flows](docs/example-flows.md) | Walkthrough of a full run |
 
-> ⚠️ **AI and Jev are wired but off by default.** `AI_PROVIDER` defaults to
-> `mock`, which makes every AI path a no-op; Jev stays dormant until
-> `TYPESAFE_API_KEY` is set. Both are advisory: neither decides pass/fail, and
-> the deterministic pipeline runs unchanged with no keys. Live calls against
-> real Gemini/Grok/OpenAI/Jev endpoints are **unverified** — no keys are
-> configured in this environment. See [Status](#status).
+> ⚠️ **AI is wired but off by default.** `AI_PROVIDER` defaults to `mock`,
+> which makes every AI path a no-op, including the AI browser agent. AI is
+> advisory: it never decides pass/fail, and the deterministic pipeline runs
+> unchanged with no keys. Live calls against real Gemini/Grok/OpenAI endpoints
+> are **unverified** — no valid key is configured in this environment. See
+> [Status](#status).
 
 ---
 
@@ -233,11 +233,14 @@ no key. `GET|POST /api/modules/[moduleId]/ai` serves the application model and
 page interpretation with a server-rebuilt, sanitized context — **the UI does not
 call it yet**. Test-case generation's deterministic path never consults a model.
 
-**Jev (TypeSafe System One)** is likewise wired: `TYPESAFE_API_KEY` enables
-`createJevAgent`, used in discovery for unfamiliar logins and the
-irreversible-action guard, and in execution as the last step of the locator
-fallback chain (`processor.ts:53` → `ctx.resolver` → `waitForLocator`). Unset,
-every hook is a no-op. See [Status](#status) for what remains unverified.
+**AI browser agent** (`apps/worker/src/browser-agent`) replaces the former Jev
+integration: Playwright lists the page's visible controls, the configured model
+(`AI_PROVIDER`, Gemini by default) picks an element or the next operation, and
+Playwright performs it. It handles unfamiliar logins and the irreversible-action
+guard in discovery, the last step of the locator fallback chain in execution,
+and `GOAL` steps (a plain-language goal completed step by step). Credentials are
+offered to the model by name only. On `AI_PROVIDER=mock` every hook is a no-op.
+See [Status](#status) for what remains unverified.
 
 ---
 
@@ -399,7 +402,7 @@ packages/core/    Queue, storage, errors, action safety, logging
 packages/db/      Drizzle schema, migrations, seed
 packages/schemas/ Shared Zod contracts
 packages/browser/ Playwright: collection, detection, analysis, redaction
-packages/ai/      AIProvider: mock / openai / gemini / grok / local + Jev client
+packages/ai/      AIProvider: mock / openai / gemini / grok / local, test-case and page-decision prompts
 ```
 
 ---
@@ -450,8 +453,9 @@ Verified working end to end:
 - **AI providers** — `mock` / `openai` / `gemini` / `grok` / `local`, redaction,
   and three advisory call sites (page interpretation, workflow analysis, extra
   case suggestions). Off by default.
-- **Jev** — `TYPESAFE_API_KEY` enables login assist and the irreversible-action
-  guard in discovery, and the locator fallback in execution.
+- **AI browser agent** — with a real `AI_PROVIDER`: login assist and the
+  irreversible-action guard in discovery, the locator fallback and `GOAL` steps
+  in execution.
 - **SSRF guard** on project base URLs, with `ALLOW_PRIVATE_TARGETS` for local
   development.
 - Reporting: run summaries, coverage, counter-drift detection, inline evidence,
@@ -461,8 +465,8 @@ Verified working end to end:
 - Dark-only UI; 19 test files / 172 tests, all green.
 
 Verified **not** working (see `docs/requirements.md` for the full matrix):
-- **AI and Jev live calls** — wired but unverified: no `GEMINI_API_KEY`,
-  `XAI_API_KEY` or `TYPESAFE_API_KEY` configured here. Both are advisory and
+- **AI live calls** — wired but unverified: the configured `GEMINI_API_KEY`
+  is not a Gemini key, and the xAI account has no credits. AI is advisory and a
   no-op when unset (`AI_PROVIDER` defaults to `mock`).
 - **CSV binding** — the worker expands CSV rows, but nothing can set
   `test_cases.dataset_id`: no API field, no UI. Also `KEY_VALUE` dataset saves

@@ -127,10 +127,12 @@ export interface DiscoveryProgress {
   history: Array<{ id: string; status: string; createdAt: string }>;
 }
 
-export function useDiscovery(moduleId: string, options: { enabled?: boolean; refetchMs?: number } = {}) {
+/** Latest discovery run of a module, or a specific one when `sessionId` is given. */
+export function useDiscovery(moduleId: string, options: { enabled?: boolean; refetchMs?: number; sessionId?: string | null } = {}) {
+  const query = options.sessionId ? `?session=${encodeURIComponent(options.sessionId)}` : "";
   return useQuery({
-    queryKey: queryKeys.discovery(moduleId),
-    queryFn: () => apiFetch<DiscoveryProgress>(`/api/modules/${moduleId}/discovery`),
+    queryKey: [...queryKeys.discovery(moduleId), options.sessionId ?? "latest"],
+    queryFn: () => apiFetch<DiscoveryProgress>(`/api/modules/${moduleId}/discovery${query}`),
     enabled: options.enabled ?? Boolean(moduleId),
     refetchInterval: (query) => {
       if (query.state.error) {

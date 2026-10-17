@@ -1,4 +1,4 @@
-import type { AiPageContext, AiPageInterpretation, AiTestCaseSuggestions, AiWorkflowAnalysis } from "@repo/schemas";
+import type { AiPageContext, AiPageDecision, AiPageInterpretation, AiTestCaseSuggestions, AiWorkflowAnalysis } from "@repo/schemas";
 import type { AIProvider } from "./types";
 
 /**
@@ -86,6 +86,11 @@ export class MockProvider implements AIProvider {
   /** The deterministic scenario builders already cover every page; nothing to add. */
   async generateTestCases(): Promise<AiTestCaseSuggestions> {
     return { cases: [] };
+  }
+
+  /** No model, no decision: the browser agent treats confidence 0 as "not found". */
+  async decidePageAction(): Promise<AiPageDecision> {
+    return { ref: null, answer: false, confidence: 0 };
   }
 }
 

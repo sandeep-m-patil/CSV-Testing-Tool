@@ -101,9 +101,10 @@ Pages: `/app/projects`, `/app/projects/[projectId]`.
   `enrichWithAiAnalysis` logs workflow analysis without applying it; and
   `createAiCaseGenerator` may add `source = "ai"` cases beyond the deterministic
   matrix. Nothing the model says ever becomes a locator or a PASS/FAIL opinion.
-- **Jev login assist** — with `TYPESAFE_API_KEY`, Jev recognises and completes
-  unfamiliar login forms and guards irreversible actions (see `requirements.md`
-  §13).
+- **AI browser agent** — with a real `AI_PROVIDER`, the agent (Playwright acts,
+  the model decides) recognises and completes unfamiliar login forms, guards
+  irreversible actions, finds moved elements, and runs `GOAL` steps (see
+  `requirements.md` §13).
 - **Write-ahead persistence** — every page/action/log is durable immediately, so
   the UI can stream live and a worker crash does not lose the session.
 - **Budget enforcement** — max pages, steps, actions/page, depth, timeout, sleep,
@@ -191,6 +192,6 @@ Ordered by priority in `requirements.md` §15.
 ### Environment-dependent, not on the critical path
 
 - S3 evidence verification, once a Neon S3 bucket exists.
-- Live verification of the AI/Jev providers: Gemini (`GEMINI_API_KEY`), Grok
-  (`XAI_API_KEY`) and Jev (`TYPESAFE_API_KEY`) are wired and unit-tested, but no
-  live call has been made from this environment.
+- Live verification of the AI providers: Gemini (`GEMINI_API_KEY`) and Grok
+  (`XAI_API_KEY`) are wired and unit-tested, but no successful live call has been
+  made from this environment.

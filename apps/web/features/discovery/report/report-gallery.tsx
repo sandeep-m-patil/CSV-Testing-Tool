@@ -1,6 +1,8 @@
 "use client";
 
+import { useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { EvidenceViewer } from "@/components/ui/evidence-viewer";
 import { formatDate } from "@/lib/utils";
 
 export type ReportShot = {
@@ -12,10 +14,13 @@ export type ReportShot = {
 };
 
 /**
- * Static screenshot grid sized for A4 printing — two per row, no hover
- * overlays or dialogs, and a caption under each image.
+ * Screenshot grid sized for A4 printing — two per row with a caption under
+ * each image. On screen, clicking a shot opens the gallery viewer.
  */
 export function ReportGallery({ shots }: { shots: ReportShot[] }) {
+  const [index, setIndex] = useState<number | null>(null);
+  const viewable = shots.filter((shot) => shot.url);
+  const items = viewable.map((shot) => ({ url: shot.url!, title: shot.label, subtitle: `${shot.kind} · ${formatDate(shot.createdAt)}` }));
   return (
     <Card className="print-card">
       <CardHeader className="pb-3">
@@ -27,7 +32,9 @@ export function ReportGallery({ shots }: { shots: ReportShot[] }) {
           {shots.map((shot) => (
             <figure key={shot.id} className="print-block overflow-hidden rounded-lg border bg-card">
               {shot.url ? (
-                <img src={shot.url} alt={shot.label} className="h-56 w-full border-b bg-muted/40 object-cover object-top" />
+                <button type="button" className="block w-full cursor-zoom-in" onClick={() => setIndex(viewable.indexOf(shot))} aria-label={`Open ${shot.label}`}>
+                  <img src={shot.url} alt={shot.label} className="h-56 w-full border-b bg-muted/40 object-cover object-top" />
+                </button>
               ) : (
                 <div className="flex h-56 items-center justify-center border-b bg-muted/20 text-xs text-muted-foreground">
                   Preview unavailable
@@ -43,6 +50,7 @@ export function ReportGallery({ shots }: { shots: ReportShot[] }) {
           ))}
         </div>
       </CardContent>
+      <EvidenceViewer items={items} index={index} onIndexChange={setIndex} />
     </Card>
   );
 }

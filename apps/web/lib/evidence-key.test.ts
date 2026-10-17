@@ -15,3 +15,10 @@ describe("moduleIdOfKey", () => {
     expect(moduleIdOfKey(`../modules/${MODULE_ID}/x.png`)).toBeNull();
   });
 });
+
+describe("evidenceUrl", () => {
+  it("always routes through the authorized proxy, never the bucket", async () => {
+    const { evidenceUrl } = await import("./evidence-key");
+    expect(evidenceUrl("modules/m1/runs/r1/login case-a1-s2.png")).toBe("/api/storage/modules/m1/runs/r1/login%20case-a1-s2.png");
+  });
+});

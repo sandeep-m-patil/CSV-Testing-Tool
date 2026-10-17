@@ -16,6 +16,8 @@ export const STEP_ACTIONS = [
   "PRESS",
   "HOVER",
   "UPLOAD",
+  /** A plain-language goal completed by the AI browser agent; the goal text is the target. */
+  "GOAL",
   "WAIT",
   "VERIFY",
 ] as const;

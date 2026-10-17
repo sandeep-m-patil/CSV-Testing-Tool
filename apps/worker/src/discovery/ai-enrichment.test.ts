@@ -68,6 +68,7 @@ function provider(overrides: Partial<AIProvider> = {}): AIProvider {
       workflows: [],
     }),
     generateTestCases: async () => ({ cases: [] }),
+    decidePageAction: async () => ({ ref: null, answer: false, confidence: 0 }),
     ...overrides,
   };
 }

@@ -8,7 +8,6 @@ const booleanFromString = z
 
 const envSchema = z.object({
   DATABASE_URL: z.string().min(1),
-  REDIS_URL: z.string().min(1),
   CREDENTIAL_ENCRYPTION_KEY: z.string().optional(),
 
   BROWSER_HEADLESS: booleanFromString,
@@ -28,6 +27,12 @@ const envSchema = z.object({
   STORAGE_DRIVER: z.enum(["local", "s3"]).default("local"),
   STORAGE_LOCAL_DIR: z.string().default("./data/storage"),
   STORAGE_PUBLIC_BASE_URL: z.string().default("http://localhost:3000"),
+  /** S3-compatible bucket (Neon Storage, R2, AWS) used when STORAGE_DRIVER=s3. */
+  S3_BUCKET: z.string().optional(),
+  S3_REGION: z.string().optional(),
+  S3_ENDPOINT: z.string().url().optional(),
+  S3_ACCESS_KEY_ID: z.string().optional(),
+  S3_SECRET_ACCESS_KEY: z.string().optional(),
 
   AI_PROVIDER: z.enum(["mock", "openai", "gemini", "grok", "local"]).default("mock"),
   OPENAI_API_KEY: z.string().optional(),
@@ -44,15 +49,11 @@ const envSchema = z.object({
   LOCAL_AI_MODEL: z.string().optional(),
 
   /**
-   * Jev (TypeSafe System One). Optional: without a key, discovery and execution
-   * run exactly as before, and the locator chain fails with a diagnostic
-   * instead of falling through to Jev.
+   * Browser agent (Playwright + AI_PROVIDER). When a real provider is set,
+   * discovery asks it before clicking submit-like controls and skips anything
+   * that looks irreversible (order, payment, message, delete, approve, publish).
    */
-  TYPESAFE_API_KEY: z.string().optional(),
-  JEV_API_URL: z.string().url().optional(),
-  JEV_MODEL: z.string().optional(),
-  /** Ask Jev before clicking submit-like controls during discovery; skip if it looks irreversible. */
-  JEV_GUARD_IRREVERSIBLE: booleanFromString,
+  AGENT_GUARD_IRREVERSIBLE: booleanFromString,
 });
 
 export type WorkerEnv = z.infer<typeof envSchema>;

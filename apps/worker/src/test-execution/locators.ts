@@ -167,7 +167,7 @@ export async function resolveLocator(page: Page, hint: string): Promise<Locator 
 
 /**
  * Retries the deterministic lookup for a short window. Late-rendering targets
- * are common, and asking Jev about a half-loaded page wastes a call and risks
+ * are common, and asking the AI about a half-loaded page wastes a call and risks
  * picking a look-alike that rendered first.
  */
 async function pollLocator(page: Page, hint: string): Promise<Locator | null> {
@@ -196,17 +196,17 @@ export class TargetNotFoundError extends Error {
 
 export interface ResolvedTarget {
   locator: Locator;
-  resolvedBy: "locator" | "jev";
+  resolvedBy: "locator" | "ai";
 }
 
-/** Portable hint → polled Playwright locator → Jev → wait for the hint's selector → TargetNotFoundError. */
+/** Portable hint → polled Playwright locator → AI browser agent → wait for the hint's selector → TargetNotFoundError. */
 export async function waitForTarget(page: Page, hint: string, resolver: SemanticResolver | null = null): Promise<ResolvedTarget> {
   const locator = await pollLocator(page, hint);
   if (locator) return { locator, resolvedBy: "locator" };
 
   if (resolver?.isEnabled()) {
     const semantic = await resolver.resolve(page, semanticTargetFor(hint));
-    if (semantic) return { locator: semantic, resolvedBy: "jev" };
+    if (semantic) return { locator: semantic, resolvedBy: "ai" };
   }
 
   const name = textOf(hint);
@@ -258,9 +258,9 @@ function roleOfRole(role: string): SemanticTarget["role"] {
   return known[role];
 }
 
-/** Says whether Jev was consulted, so a failure report shows the whole chain. */
+/** Says whether the AI was consulted, so a failure report shows the whole chain. */
 function fallbackNote(resolver: SemanticResolver | null): string {
-  return resolver?.isEnabled() ? ` (Jev fallback also found no match)` : "";
+  return resolver?.isEnabled() ? ` (AI fallback also found no match)` : "";
 }
 
 export { LOCATOR_TIMEOUT_MS };

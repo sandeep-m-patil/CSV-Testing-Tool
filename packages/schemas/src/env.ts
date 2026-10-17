@@ -8,7 +8,6 @@ export type AiProviderKind = z.infer<typeof AiProviderKindSchema>;
 
 export const SharedEnvSchema = z.object({
   DATABASE_URL: z.string().min(1, "DATABASE_URL is required"),
-  REDIS_URL: z.string().min(1, "REDIS_URL is required"),
   CREDENTIAL_ENCRYPTION_KEY: z
     .string()
     .min(1, "CREDENTIAL_ENCRYPTION_KEY is required")

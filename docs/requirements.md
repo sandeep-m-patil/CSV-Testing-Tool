@@ -48,10 +48,10 @@ TEST EXECUTION ENGINE
         ↓
         ┌───────────────┴───────────────┐
         ↓                               ↓
-Jev Ultrafast                    Playwright
-dynamic target help             actual browser
-(wired, advisory; no-op           │
- unless TYPESAFE_API_KEY)         │
+AI browser agent                 Playwright
+(model picks targets/steps)     actual browser
+(advisory; no-op on               │
+ AI_PROVIDER=mock)                │
         └───────────────┬───────────────┘
                         ↓
                   Assertions
@@ -71,7 +71,7 @@ unpredictable agent.
 | Component | Decides | Must never decide |
 | --- | --- | --- |
 | **Gemini** | What should be tested. Scenario expansion, classification. | Whether a test passed. Never emits Playwright code. |
-| **Jev Ultrafast** | Which on-page element to act on, given page state. | Pass/fail. Never emits selectors, coordinates or JavaScript. |
+| **AI browser agent** (Playwright + model) | Which on-page element to act on, or the next step toward a goal, given page state. | Pass/fail. Never emits selectors, coordinates or JavaScript; never sees credential values. |
 | **Playwright** | Browser automation. Clicks, typing, navigation. | Test intent. |
 | **Test engine** | PASS/FAIL via deterministic assertions, scheduling, retries, artifact capture, CSV parsing, credential storage. | — |
 
@@ -331,43 +331,32 @@ Modules
 
 ---
 
-## 13. Jev Ultrafast integration
+## 13. AI browser agent (replaces Jev)
 
-Jev is reached through **TypeSafe System One** (`POST https://api.typesafe.ai/v1/systemone`),
-the same API the `jev-browser` npm package uses. Jev answers typed questions
-with probabilities (`noul` yes/no, `choice` pick-one) and never writes text.
-The repository talks to it directly from TypeScript, so there is no Python
-sidecar and no second browser: Jev picks among elements the worker listed,
-and the worker's own Playwright page performs every action.
+The Jev / TypeSafe integration was removed. Its responsibilities moved to a
+browser agent built from **Playwright + the configured model** (`AI_PROVIDER`,
+Gemini by default), in `apps/worker/src/browser-agent/`:
 
-| Piece | File |
-| --- | --- |
-| System One client (typed, retries 429/5xx, schema-checked answers) | `packages/ai/src/jev.ts` |
-| Page listing + redaction (secrets, emails, long numbers) | `apps/worker/src/jev/page-elements.ts`, `redact.ts` |
-| Element targeting, page checks, irreversibility | `apps/worker/src/jev/agent.ts` |
-| Login on unfamiliar forms (values offered by *name* only) | `apps/worker/src/jev/login.ts` |
-| Discovery hooks | `apps/worker/src/discovery/jev-assist.ts` |
-| Execution fallback | `apps/worker/src/test-execution/semantic-target.ts` |
-
-Enabled by `TYPESAFE_API_KEY`. Without it every hook is a no-op. Wired in both
-discovery (`runner.ts:116` builds the agent for login assist + the
-irreversible-action guard) and execution (`processor.ts:53` feeds
-`createJevResolver` into `ctx.resolver`, the last step of `waitForLocator`).
-Unit-tested against a scripted fake page; **live calls unverified** (no key
-configured).
+- Playwright lists the page's visible controls (numbered), and the model answers
+  one typed question per call (`decidePageAction` in `@repo/ai`): which element,
+  a yes/no answer, or the next operation toward a goal. Replies are schema-checked;
+  a malformed reply is "no decision".
+- Playwright performs every action. The model never writes selectors or code,
+  never sees credential values (offered by name only), and never decides PASS/FAIL.
 
 | # | Requirement | Status | Notes |
 | --- | --- | --- | --- |
-| 13.1 | Dynamic target resolution when a locator fails | **DONE** | Jev is consulted after a 3s deterministic poll. |
-| 13.2 | Structured target → semantic locator → Jev → fail | **DONE** | `waitForLocator`; failure message says whether Jev was consulted. |
-| 13.3 | Unresolved target never silently skipped | **DONE** | Fails with diagnostic. |
-| 13.4 | Jev never decides pass/fail | **DONE** | Assertions stay deterministic in `assertions.ts`. |
-| 13.5 | Credentials never sent to Jev | **DONE** | Login offers `username`/`password` as names; secrets scrubbed from page text. Tested. |
-| 13.6 | Login on non-standard forms during discovery | **DONE** | Used only when heuristics cannot find both credential fields. |
-| 13.7 | Skip irreversible actions during discovery | **DONE** | `JEV_GUARD_IRREVERSIBLE`; fails open to the static `dangerous` filter. |
+| 13.1 | Dynamic target resolution when a locator fails | **DONE** | AI fallback after a 3s deterministic poll. |
+| 13.2 | Structured target → semantic locator → AI → fail | **DONE** | `waitForTarget`; failure says whether the AI was consulted. |
+| 13.3 | Unresolved target never silently skipped | **DONE** | BLOCKED with diagnostic. |
+| 13.4 | AI never decides pass/fail | **DONE** | Assertions stay deterministic. |
+| 13.5 | Credentials never sent to the model | **DONE** | Tested. |
+| 13.6 | Login on non-standard forms during discovery | **DONE** | Goal loop "Sign in". |
+| 13.7 | Skip irreversible actions during discovery | **DONE** | `AGENT_GUARD_IRREVERSIBLE`. |
+| 13.8 | Goal-driven steps (`GOAL`) | **DONE** | Plain-language goal completed step by step. |
 
-Known limits: elements inside iframes and shadow DOM are not listed yet; Jev
-login stops at captcha / 2FA (`blocked`) rather than attempting it.
+Known limits: needs a valid AI key (none configured here, so untested live);
+iframes and shadow DOM are not listed; captcha/2FA stop a goal as BLOCKED.
 
 ---
 
@@ -392,8 +381,8 @@ login stops at captcha / 2FA (`blocked`) rather than attempting it.
 ## 15. Priority order for remaining work
 
 Ordered by user-visible value ÷ risk. None of the top ten need external keys.
-Gemini/Grok/Jev are implemented but unevaluated live, so live verification keys
-are the only paid line items on the roadmap.
+Gemini/Grok and the AI browser agent are implemented but unevaluated live, so a valid AI key
+is the only paid line item on the roadmap.
 
 | Rank | Item | Requirement |
 | --- | --- | --- |
@@ -431,7 +420,7 @@ actually happens today.
 | 12 | Review and approve test cases | **Blocked** — §6.3 |
 | 13 | Upload or select a CSV dataset | CSV upload **works** (§9.5); selecting/binding a dataset to a case is **Blocked** — §9.9 |
 | 14 | Execute selected test cases | Works (whole module only) |
-| 15 | Use Jev for dynamic target resolution | Wired with `TYPESAFE_API_KEY` — §13; untested live |
+| 15 | Use the AI browser agent for dynamic target resolution | Wired with a real `AI_PROVIDER` — §13; untested live |
 | 16 | Execute actions through Playwright | Works |
 | 17 | Deterministic assertions | Works |
 | 18 | Run multiple CSV rows | Wired in the executor, but **Blocked** end to end — no way to bind a case to a dataset except SQL (§9.9) |
@@ -450,5 +439,5 @@ actually happens today.
 | 31 | Create a new run for the rerun | **Blocked** — §7.13 |
 | 32 | Preserve complete history | Works |
 
-**7 of 32 acceptance steps are blocked.** AI and Jev are honestly wired but
-untested live (no keys), and the platform is fully functional with neither.
+**7 of 32 acceptance steps are blocked.** AI and the AI browser agent are honestly
+wired but untested live (no valid key), and the platform is fully functional without them.

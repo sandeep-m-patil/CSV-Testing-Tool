@@ -22,7 +22,6 @@ export const GET = route(async (_request, context: Params) => {
   }
   await requireModuleAccess(run.moduleId, session);
 
-  const storage = getStorage();
   const results = await db
     .select({
       id: testRunResults.id,
@@ -60,7 +59,7 @@ export const GET = route(async (_request, context: Params) => {
   return ok({
     testRun: presentRun(run, parent),
     module: module ?? null,
-    results: results.map((row) => presentResult(row, storage)),
+    results: results.map((row) => presentResult(row)),
   });
 });
 

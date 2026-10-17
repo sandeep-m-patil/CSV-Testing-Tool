@@ -40,8 +40,8 @@ export const StepResultSchema = z.object({
   durationMs: z.number().int(),
   error: z.string().optional(),
   screenshotKey: z.string().nullable(),
-  /** How the target was found: the portable hint, or Jev's fallback. */
-  resolvedBy: z.enum(["locator", "jev"]).optional(),
+  /** How the target was found: the portable hint, or the AI browser agent's fallback. */
+  resolvedBy: z.enum(["locator", "ai"]).optional(),
 });
 export type StepResult = z.infer<typeof StepResultSchema>;
 

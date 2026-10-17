@@ -1,12 +1,13 @@
 import { chromium, type Browser, type Page } from "playwright";
-import { createAIProvider, type AIProvider } from "@repo/ai";
-import { createStorage, type StorageProvider } from "@repo/core";
+import type { AIProvider } from "@repo/ai";
+import { getWorkerAI } from "../ai";
+import type { StorageProvider } from "@repo/core";
+import { getWorkerStorage } from "../storage";
 import { analyzeCurrentPage, normalizeRoute, resolveLocator, type AnalyzedPage, type DetectedAction } from "@repo/browser";
 import type { Db } from "@repo/db";
 import { discoveredActions, modules, projects, testDataSets } from "@repo/db/schema";
 import { and, eq } from "drizzle-orm";
 import { env } from "../env";
-import type { WorkerEnv } from "../env";
 import type { ActorContext, IndexedAction } from "./action-space";
 import { actionKey, buildActionSpace, decideOneAction } from "./action-space";
 import { DiscoveryStore, type ActionRecord } from "./store";
@@ -16,10 +17,16 @@ import { pageIdentity, stateFingerprint, stateName, type PageIdentity } from "./
 import { interpretPageWithFallback } from "./ai-enrichment";
 import { buildWorkflows, enrichWithAiAnalysis } from "../workflows/builder";
 import { generateTestCases } from "../test-generation/generator";
-import type { JevAgent } from "../jev/agent";
-import { createJevAgent } from "../jev/factory";
-import { attemptJevLogin, confirmLoginWithJev, hasPasswordField, isIrreversibleByJev, shouldLoginWithJev } from "./jev-assist";
+import type { PageAgent } from "../browser-agent/agent";
+import { createPageAgent } from "../browser-agent/factory";
+import { attemptAgentLogin, confirmLoginWithAgent, hasPasswordField, isIrreversibleByAgent, shouldLoginWithAgent } from "./ai-assist";
 import { loadModuleCredentials, secretsOf, type ResolvedCredential } from "../credentials";
+import { displayFillValue } from "./display-value";
+
+/** Typed values for logs and captions, with credentials masked. */
+function shownValue(ctx: DiscoveryContext, chosen: IndexedAction, value: string): string {
+  return displayFillValue(value, { inputType: chosen.element?.inputType, secrets: secretsOf(ctx.credentials) });
+}
 
 /** Explores public pages when a module references no usable credential. */
 const ANONYMOUS: DecodedCredential = { id: "", name: "anonymous", role: "anonymous", username: "", password: null, environmentId: null, variables: {} };
@@ -52,8 +59,8 @@ export interface DiscoveryContext {
   store: DiscoveryStore;
   storage: StorageProvider;
   ai: AIProvider;
-  /** Jev page agent for logins and irreversibility checks; null when not configured. */
-  jev: JevAgent | null;
+  /** Browser agent (Playwright + the model) for logins and irreversibility checks; null on AI_PROVIDER=mock. */
+  agent: PageAgent | null;
 }
 
 interface StepBudget {
@@ -99,20 +106,16 @@ export async function runDiscovery(input: RunInput): Promise<void> {
       testData: buildRowPool(dataSets.map((dataset) => dataset.data)),
       db,
       store,
-      storage: createStorage({
-        driver: env.STORAGE_DRIVER,
-        localDir: env.STORAGE_LOCAL_DIR,
-        publicBaseUrl: env.STORAGE_PUBLIC_BASE_URL,
-      }),
-      ai: createAIProvider(resolveAiConfig(env)),
-      jev: createJevAgent(env, secretsOf(decoded)),
+      storage: getWorkerStorage(),
+      ai: getWorkerAI(),
+      agent: createPageAgent(getWorkerAI(), secretsOf(decoded)),
     };
 
     await store.updateSession({ status: "RUNNING", startedAt: new Date(), error: null });
 
     await store.log("event", `Discovery started for "${module.name}" (${project.environment}) using ${ctx.ai.label}.`);
     await store.log("event", `Module scope: ${describeScope(scope)} (start ${scope.startUrl}).`);
-    await store.log("event", ctx.jev ? `Dynamic browser agent: ${ctx.jev.label}.` : "Dynamic browser agent: off (set TYPESAFE_API_KEY to enable Jev).");
+    await store.log("event", ctx.agent ? `Dynamic browser agent: ${ctx.agent.label}.` : "Dynamic browser agent: off (set AI_PROVIDER and its API key to enable it).");
     await store.log("event", `Decrypted credentials available: ${ctx.credentials.map((credential) => credential.role).join(", ") || "none"}.`);
     for (const credential of decoded) {
       if (credential.password === null) {
@@ -206,7 +209,7 @@ async function exploreAsRole(browser: Browser, ctx: DiscoveryContext, credential
     navigationDepth: 0,
     navigationDepthBudget: env.DISCOVERY_NAVIGATION_DEPTH,
     loginChecks: new Map<string, boolean>(),
-    isJevLoginAttempted: false,
+    isAgentLoginAttempted: false,
   };
 
   try {
@@ -245,7 +248,7 @@ async function enterModuleScope(
   const outside = await analyzeCurrentPage(page, navOptions(ctx));
   // SSO and hosted login gates usually live on another origin, so this is
   // where a non-English or non-standard login screen must be recognised.
-  if (outside && (looksLikeLogin(outside) || (hasPasswordField(outside) && (await confirmLoginWithJev(ctx, page, actor))))) {
+  if (outside && (looksLikeLogin(outside) || (hasPasswordField(outside) && (await confirmLoginWithAgent(ctx, page, actor))))) {
     actor.onLoginPage = true;
     return true;
   }
@@ -334,11 +337,11 @@ async function explorePage(
     freshActions.forEach((action) => persistedActionKeys.add(actionKey(action)));
 
     const space = buildActionSpace(analyzed.snapshot.elements, analyzed.actions);
-    actor.onLoginPage = looksLikeLogin(analyzed) || (hasPasswordField(analyzed) && (await confirmLoginWithJev(ctx, page, actor)));
+    actor.onLoginPage = looksLikeLogin(analyzed) || (hasPasswordField(analyzed) && (await confirmLoginWithAgent(ctx, page, actor)));
 
-    if (shouldLoginWithJev(ctx, actor, space)) {
+    if (shouldLoginWithAgent(ctx, actor, space)) {
       const loginStartUrl = page.url();
-      const isSignedIn = await attemptJevLogin(ctx, page, actor);
+      const isSignedIn = await attemptAgentLogin(ctx, page, actor);
       budget.actions += 1;
       // Marks the login page as exercised so auth cases are generated for it.
       const passwordAction = space.find((item) => item.element?.inputType === "password");
@@ -360,7 +363,7 @@ async function explorePage(
     const chosen = space.find((item) => item.index === decision.index);
     if (!chosen) break;
 
-    if (await isIrreversibleByJev(ctx, page, { chosen, actor })) {
+    if (await isIrreversibleByAgent(ctx, page, { chosen, actor })) {
       actor.executedKeys.add(actionKey(chosen.action));
       actionsOnPage += 1;
       continue;
@@ -377,7 +380,7 @@ async function explorePage(
     // Dispatch session count + executed flag + log write in parallel (single round-trip window).
     const writes: Promise<unknown>[] = [
       ctx.store.updateSession({ actionsDiscovered: budget.actions }),
-      ctx.store.log("action", `[${decision.kind}] ${chosen.label}${decision.value !== undefined ? ` = "${decision.value}"` : ""}`),
+      ctx.store.log("action", `[${decision.kind}] ${chosen.label}${decision.value !== undefined ? ` = "${shownValue(ctx, chosen, decision.value)}"` : ""}`),
     ];
     if (actionRowId) writes.push(ctx.store.setExecuted(actionRowId));
     await Promise.all(writes);
@@ -525,7 +528,7 @@ async function recordEvidence(
   actionId: string | undefined,
   pageId: string,
 ): Promise<void> {
-  const label = `After ${chosen.label}${decision.value !== undefined ? ` (${decision.value})` : ""}`;
+  const label = `After ${chosen.label}${decision.value !== undefined ? ` (${shownValue(ctx, chosen, decision.value)})` : ""}`;
   const evidence = await captureEvidence(ctx, page, {
     label,
     suffix: `action-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
@@ -664,22 +667,5 @@ function toActionRecord(action: DetectedAction): ActionRecord {
     dangerous: action.dangerous,
     blocked: action.blocked,
     executed: false,
-  };
-}
-
-function resolveAiConfig(workerEnv: WorkerEnv) {
-  return {
-    provider: workerEnv.AI_PROVIDER,
-    openaiApiKey: workerEnv.OPENAI_API_KEY ?? undefined,
-    openaiBaseUrl: workerEnv.OPENAI_BASE_URL ?? undefined,
-    openaiModel: workerEnv.OPENAI_MODEL ?? undefined,
-    geminiApiKey: workerEnv.GEMINI_API_KEY ?? undefined,
-    geminiBaseUrl: workerEnv.GEMINI_BASE_URL ?? undefined,
-    geminiModel: workerEnv.GEMINI_MODEL ?? undefined,
-    xaiApiKey: workerEnv.XAI_API_KEY ?? undefined,
-    xaiBaseUrl: workerEnv.XAI_BASE_URL ?? undefined,
-    xaiModel: workerEnv.XAI_MODEL ?? undefined,
-    localBaseUrl: workerEnv.LOCAL_AI_BASE_URL ?? undefined,
-    localModel: workerEnv.LOCAL_AI_MODEL ?? undefined,
   };
 }

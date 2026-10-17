@@ -1,7 +1,7 @@
 "use client";
 
 import { Suspense, useEffect, useState } from "react";
-import { useParams, useSearchParams } from "next/navigation";
+import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { RotateCw, TerminalSquare } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { EmptyState } from "@/components/ui/empty-state";
@@ -30,15 +30,21 @@ function DiscoveryView() {
   const searchParams = useSearchParams();
   const requestedSession = searchParams.get("session");
 
-  const { data, isLoading, refetch, isFetching } = useDiscovery(moduleId);
+  const router = useRouter();
   const [selectedSession, setSelectedSession] = useState<string | null>(requestedSession);
+  const { data, isLoading, refetch, isFetching } = useDiscovery(moduleId, { sessionId: selectedSession });
 
   useEffect(() => {
     if (requestedSession) setSelectedSession(requestedSession);
   }, [requestedSession]);
 
   const session = data?.session ?? null;
-  const active = session && selectedSession ? session.id === selectedSession : true;
+
+  function onRunDeleted(deletedId: string) {
+    if (deletedId !== (selectedSession ?? session?.id)) return;
+    setSelectedSession(null);
+    router.replace(`/modules/${moduleId}/discovery`, { scroll: false });
+  }
 
   if (isLoading) {
     return (
@@ -53,7 +59,7 @@ function DiscoveryView() {
 
   const moduleName = data?.module?.name ?? "Module";
   const moduleStatus = data?.module?.discoveryStatus ?? "NOT_DISCOVERED";
-  const isRunning = (active && session?.status === "RUNNING") || (active && session?.status === "QUEUED");
+  const isRunning = session?.status === "RUNNING" || session?.status === "QUEUED";
 
   const actions = (
     <>
@@ -80,18 +86,18 @@ function DiscoveryView() {
 
       {session && (
         <>
-          {data?.history && data.history.length > 1 && (
-            <RunHistory runs={data.history} activeId={selectedSession ?? session.id} onSelect={setSelectedSession} />
+          {data?.history && data.history.length > 0 && (
+            <RunHistory moduleId={moduleId} runs={data.history} activeId={session.id} onSelect={setSelectedSession} onDeleted={onRunDeleted} />
           )}
 
           <SessionStatusCard session={session} />
 
           <div className="grid gap-6 lg:grid-cols-5">
             <section className="min-w-0 lg:col-span-2" aria-label="Worker console">
-              <LogConsole logs={(active ? data?.logs : []) ?? []} />
+              <LogConsole logs={data?.logs ?? []} />
             </section>
             <section className="min-w-0 lg:col-span-3" aria-label="Evidence">
-              <EvidencePanel artifacts={(active ? data?.artifacts : []) ?? []} pages={(active ? data?.pages : []) ?? []} />
+              <EvidencePanel artifacts={data?.artifacts ?? []} pages={data?.pages ?? []} />
             </section>
           </div>
         </>

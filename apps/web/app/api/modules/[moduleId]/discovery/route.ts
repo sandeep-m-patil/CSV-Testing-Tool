@@ -12,14 +12,17 @@ import { ok, route } from "@/lib/api";
 import { requireSession } from "@/lib/auth/get-session";
 import { requireModuleAccess } from "@/lib/auth/guards";
 import { db } from "@/lib/db";
+import { evidenceUrl } from "@/lib/evidence-key";
 
 type Params = { params: Promise<Record<string, string>> };
 
+const HISTORY_LIMIT = 50;
+
 /**
- * Latest discovery session for a module + live logs + evidence artifacts.
- * Polled by the frontend while discovery runs.
+ * One discovery session (`?session=<id>`, default the latest) with its logs,
+ * evidence and pages, plus the module's run history. Polled while it runs.
  */
-export const GET = route(async (_request, context: Params) => {
+export const GET = route(async (request, context: Params) => {
   const session = await requireSession();
   const routeParams = await context.params;
   const moduleId = routeParams['moduleId']!;
@@ -33,10 +36,12 @@ export const GET = route(async (_request, context: Params) => {
       .from(discoverySessions)
       .where(eq(discoverySessions.moduleId, moduleId))
       .orderBy(desc(discoverySessions.createdAt))
-      .limit(10),
+      .limit(HISTORY_LIMIT),
   ]);
 
-  const latest = sessionRows[0] ?? null;
+  // A requested id is honoured only when it belongs to this module.
+  const requestedId = new URL(request.url).searchParams.get("session");
+  const latest = sessionRows.find((row) => row.id === requestedId) ?? sessionRows[0] ?? null;
   if (!latest) {
     // The module exists but has never been crawled. This is a normal state, not a
     // missing resource, so return an empty payload the page can render instead of
@@ -83,7 +88,9 @@ export const GET = route(async (_request, context: Params) => {
     module: module?.[0] ?? null,
     project: project?.[0] ?? null,
     logs,
-    artifacts,
+    // Built from the key at read time: a URL stored at capture time would point
+    // at whichever storage backend was configured back then.
+    artifacts: artifacts.map((artifact) => ({ ...artifact, url: evidenceUrl(artifact.storageKey) })),
     pages,
     actions,
     history: sessionRows,

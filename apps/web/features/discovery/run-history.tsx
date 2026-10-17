@@ -1,11 +1,14 @@
 import { History } from "lucide-react";
 import { statusTone } from "@/components/ui/status-badge";
 import { cn, formatDate } from "@/lib/utils";
+import { DeleteDiscoveryRunButton } from "./delete-discovery-run-button";
 
 interface RunHistoryProps {
+  moduleId: string;
   runs: Array<{ id: string; status: string; createdAt: string }>;
   activeId: string | null;
   onSelect: (id: string) => void;
+  onDeleted?: (id: string) => void;
 }
 
 const DOT: Record<string, string> = {
@@ -17,7 +20,7 @@ const DOT: Record<string, string> = {
 };
 
 /** Horizontal strip of previous discovery runs; the selected run is pressed. */
-export function RunHistory({ runs, activeId, onSelect }: RunHistoryProps) {
+export function RunHistory({ moduleId, runs, activeId, onSelect, onDeleted }: RunHistoryProps) {
   return (
     <div className="flex min-w-0 items-center gap-2">
       <span className="flex shrink-0 items-center gap-1.5 text-xs font-medium text-muted-foreground">
@@ -28,8 +31,8 @@ export function RunHistory({ runs, activeId, onSelect }: RunHistoryProps) {
         {runs.map((run) => {
           const isActive = run.id === activeId;
           return (
+            <span key={run.id} className="group/run flex shrink-0 items-center">
             <button
-              key={run.id}
               type="button"
               aria-pressed={isActive}
               onClick={() => onSelect(run.id)}
@@ -42,6 +45,11 @@ export function RunHistory({ runs, activeId, onSelect }: RunHistoryProps) {
               <span className="sr-only">{run.status}</span>
               {formatDate(run.createdAt)}
             </button>
+              {/* The server refuses a run a worker is executing right now. */}
+              <span className={cn("transition-opacity focus-within:opacity-100 group-hover/run:opacity-100", isActive ? "opacity-100" : "opacity-0")}>
+                <DeleteDiscoveryRunButton moduleId={moduleId} sessionId={run.id} runDate={run.createdAt} onDeleted={onDeleted} />
+              </span>
+            </span>
           );
         })}
       </div>

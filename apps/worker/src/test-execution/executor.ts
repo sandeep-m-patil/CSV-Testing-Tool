@@ -6,6 +6,7 @@ import { describeExpectation } from "./describe-expectation";
 import { captureScreenshot, displayValue, evidenceKey, type EvidenceTarget } from "./run-evidence";
 import { firstLine, isBlockingError, NAVIGATION_TIMEOUT_MS, runStepWithRecovery, type RunCredential, type StepContext } from "./step-runner";
 import type { SemanticResolver } from "./semantic-target";
+import type { PageAgent } from "../browser-agent/agent";
 import type { StorageState } from "./session-bootstrap";
 
 export interface ExecutableCase {
@@ -24,8 +25,10 @@ export interface RunContext extends EvidenceTarget {
   browser: Browser;
   /** Substituted into generated steps so stored steps never contain a secret. */
   credential?: RunCredential;
-  /** Jev fallback for targets the portable hint no longer finds; null disables it. */
+  /** AI fallback for targets the portable hint no longer finds; null disables it. */
   resolver?: SemanticResolver | null;
+  /** AI browser agent for GOAL steps; null when no model is configured. */
+  agent?: PageAgent | null;
   uploadDir: string;
 }
 
@@ -74,7 +77,7 @@ interface Verdict {
 
 /** Runs action steps in order; the first step that cannot complete ends the attempt. */
 async function runActionSteps(page: Page, steps: ExecutableStep[], ctx: RunContext, recorder: StepRecorder): Promise<Verdict | null> {
-  const stepContext: StepContext = { resolver: ctx.resolver ?? null, credential: ctx.credential, uploadDir: ctx.uploadDir };
+  const stepContext: StepContext = { resolver: ctx.resolver ?? null, agent: ctx.agent ?? null, credential: ctx.credential, uploadDir: ctx.uploadDir };
   for (const step of steps) {
     if (step.stepType === "verify") continue;
     const started = Date.now();
@@ -140,7 +143,7 @@ class StepRecorder {
     return this.lastScreenshot;
   }
 
-  async record(step: ExecutableStep, input: { status: ResultStatus; started: number; resolvedBy?: "locator" | "jev"; error?: string }): Promise<void> {
+  async record(step: ExecutableStep, input: { status: ResultStatus; started: number; resolvedBy?: "locator" | "ai"; error?: string }): Promise<void> {
     const screenshotKey = await this.snapshot(`s${step.order}`);
     this.steps.push({
       order: step.order,

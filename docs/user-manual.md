@@ -400,9 +400,10 @@ Read this before you plan around the platform.
   (`AI_PROVIDER=mock`). Live calls have not been verified against real
   endpoints. Test generation you see is deterministic unless a provider is
   configured; the model never influences PASS/FAIL.
-- **Jev Ultrafast.** Wired via TypeSafe System One behind `TYPESAFE_API_KEY`
-  (login assist + irreversible-action guard in discovery, locator fallback in
-  execution) and untested live. When a test case cannot resolve its target
+- **AI browser agent.** Playwright performs every action; the configured model
+  (`AI_PROVIDER`) decides which element or next step: login assist and the
+  irreversible-action guard in discovery, the locator fallback and `GOAL` steps
+  in execution. Off on `AI_PROVIDER=mock`; untested live. When a test case cannot resolve its target
   through Playwright, the case **fails with a diagnostic** — never silently
   skipped — see §8.
 - **Video, trace, and console/network logs.** Only screenshots are captured.

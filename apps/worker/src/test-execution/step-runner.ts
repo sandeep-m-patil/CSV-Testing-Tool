@@ -4,6 +4,8 @@ import { TargetNotFoundError, waitForTarget } from "./locators";
 import type { SemanticResolver } from "./semantic-target";
 import { resolveUploadFile } from "./uploads";
 import { StepBlockedError } from "./step-errors";
+import type { PageAgent } from "../browser-agent/agent";
+import { runGoal } from "../browser-agent/goal";
 
 export { StepBlockedError };
 
@@ -13,7 +15,7 @@ export { StepBlockedError };
  *   attempt → settle and re-evaluate the page → attempt again
  *
  * Target resolution itself already walks portable hint → semantic locator →
- * Jev. A step that still cannot run throws; the caller decides FAIL vs BLOCKED.
+ * the AI browser agent. A step that still cannot run throws; the caller decides FAIL vs BLOCKED.
  */
 
 export interface RunCredential {
@@ -23,11 +25,13 @@ export interface RunCredential {
 
 export interface StepContext {
   resolver: SemanticResolver | null;
+  /** AI browser agent for GOAL steps; null when no model is configured. */
+  agent?: PageAgent | null;
   credential?: RunCredential;
   uploadDir: string;
 }
 
-export type ResolvedBy = "locator" | "jev";
+export type ResolvedBy = "locator" | "ai";
 
 export const NAVIGATION_TIMEOUT_MS = 20_000;
 const SETTLE_TIMEOUT_MS = 750;
@@ -54,6 +58,8 @@ export function resolveValue(raw: string | null | undefined, credential?: RunCre
 }
 
 export async function runStepWithRecovery(page: Page, step: ExecutableStep, ctx: StepContext): Promise<ResolvedBy | undefined> {
+  // A goal is never re-run: repeating half of "submit the form" could submit it twice.
+  if (step.action === "GOAL") return goalStep(page, step, ctx);
   for (let attempt = 1; ; attempt += 1) {
     try {
       return await performStep(page, step, ctx);
@@ -131,6 +137,30 @@ async function waitStep(page: Page, step: ExecutableStep, ctx: StepContext): Pro
 async function settle(page: Page): Promise<void> {
   await page.waitForLoadState("domcontentloaded").catch(() => undefined);
   await page.waitForTimeout(SETTLE_TIMEOUT_MS);
+}
+
+/**
+ * Completes a plain-language goal with the browser agent. The case's
+ * credential is offered by name only. DONE passes the step; ERROR (the app
+ * showed an error) fails it; BLOCKED, stuck or no model blocks it.
+ */
+async function goalStep(page: Page, step: ExecutableStep, ctx: StepContext): Promise<ResolvedBy> {
+  if (!ctx.agent) throw new StepBlockedError("This GOAL step needs the AI browser agent. Set AI_PROVIDER and its API key in apps/worker/.env.");
+  const values: Record<string, string> = {};
+  const valueDescriptions: Record<string, string> = {};
+  if (ctx.credential?.username) {
+    values.username = ctx.credential.username;
+    valueDescriptions.username = "the account username or email";
+  }
+  if (ctx.credential?.password) {
+    values.password = ctx.credential.password;
+    valueDescriptions.password = "the account password";
+  }
+  const result = await runGoal(ctx.agent, page, { goal: step.target, values, valueDescriptions });
+  const detail = `${result.reason ?? result.status}${result.actions.length > 0 ? ` after: ${result.actions.join("; ")}` : ""}`;
+  if (result.status === "done") return "ai";
+  if (result.status === "error") throw new Error(`Goal failed: the application showed an error (${detail})`);
+  throw new StepBlockedError(`Goal not completed: ${detail}`);
 }
 
 /** BLOCKED when the case could not run as written; FAIL when the app misbehaved. */

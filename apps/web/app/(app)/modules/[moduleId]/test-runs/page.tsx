@@ -119,8 +119,8 @@ function TestRunsView() {
             {runs!.map((run) => (
               <div key={run.id} className="group/run relative inline-flex items-center">
                 <TabsTrigger value={run.id} className="pr-8">
-                  {run.status === "COMPLETED" ? <CheckCircle2 className="mr-1.5 h-3.5 w-3.5 text-emerald-500" /> : null}
-                  {run.status === "FAILED" ? <XCircle className="mr-1.5 h-3.5 w-3.5 text-red-500" /> : null}
+                  {run.status === "COMPLETED" ? <CheckCircle2 className="mr-1.5 h-3.5 w-3.5 text-success" /> : null}
+                  {run.status === "FAILED" ? <XCircle className="mr-1.5 h-3.5 w-3.5 text-destructive" /> : null}
                   {run.status === "RUNNING" || run.status === "QUEUED" ? (
                     <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
                   ) : null}
@@ -178,7 +178,9 @@ function TestRunsView() {
                       <RunTotals run={runData.testRun} />
                       {caseCount === 0 ? (
                         <p className="rounded-xl border border-dashed p-8 text-center text-sm text-muted-foreground">
-                          This module has no test cases. Run discovery to generate them.
+                          {runData.testRun.status === "QUEUED" || runData.testRun.status === "RUNNING"
+                            ? "Waiting for the first case to finish. Results appear here as each case completes."
+                            : runData.testRun.error ?? "This run executed no test cases. Run discovery to generate them, or check approval status."}
                         </p>
                       ) : (
                         <TestResultGrid results={runData.results} />

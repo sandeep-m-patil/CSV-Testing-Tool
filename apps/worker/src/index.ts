@@ -1,81 +1,72 @@
 import { env } from "./env";
-import { closeAll } from "@repo/db";
+import { closeAll, getDb, startJobWorker } from "@repo/db";
 import {
-  createDiscoveryWorker,
-  createTestRunWorker,
   createChildLogger,
   logger,
-  DISCOVERY_JOB_NAME,
-  TEST_RUN_JOB_NAME,
+  DISCOVERY_QUEUE,
+  TEST_RUN_CONCURRENCY,
+  TEST_RUN_QUEUE,
+  type DiscoveryJobData,
+  type TestRunJobData,
 } from "@repo/core";
 import { processDiscoveryJob } from "./processor";
 import { processTestRunJob } from "./test-execution/processor";
 
 const log = createChildLogger({ scope: "worker-bootstrap" });
+const SHUTDOWN_GRACE_MS = 10_000;
 
-async function main(): Promise<void> {
-  const worker = createDiscoveryWorker(env.REDIS_URL, processDiscoveryJob, {
+/** Starts one Postgres-queue worker per queue; jobs live in Neon, not Redis. */
+function main(): void {
+  const db = getDb();
+  const discovery = startJobWorker<DiscoveryJobData>({
+    db,
+    queue: DISCOVERY_QUEUE,
     concurrency: env.WORKER_CONCURRENCY,
+    handler: processDiscoveryJob,
+    onCompleted: (job) => log.info({ jobId: job.id, sessionId: job.data.discoverySessionId }, "discovery job completed"),
+    onError: (error, job) =>
+      log.error({ jobId: job?.id, sessionId: job?.data.discoverySessionId, attempt: job?.attempt, error: messageOf(error) }, "discovery job error"),
   });
-
-  const testRunWorker = createTestRunWorker(env.REDIS_URL, processTestRunJob);
-
-  testRunWorker.on("completed", (job) => {
-    log.info({ jobId: job.id, testRunId: job.data.testRunId }, "test run job completed");
-  });
-
-  testRunWorker.on("failed", (job, error) => {
-    log.error({ jobId: job?.id, testRunId: job?.data.testRunId, error: error.message }, "test run job failed");
-  });
-
-  testRunWorker.on("error", (error) => {
-    log.error({ error: error.message }, "bullmq test run worker error");
-  });
-
-  worker.on("completed", (job) => {
-    log.info({ jobId: job.id, sessionId: job.data.discoverySessionId }, "discovery job completed");
-  });
-
-  worker.on("failed", (job, error) => {
-    log.error(
-      { jobId: job?.id, sessionId: job?.data.discoverySessionId, error: error.message },
-      "discovery job failed",
-    );
-  });
-
-  worker.on("error", (error) => {
-    log.error({ error: error.message }, "bullmq worker error");
+  const testRuns = startJobWorker<TestRunJobData>({
+    db,
+    queue: TEST_RUN_QUEUE,
+    concurrency: TEST_RUN_CONCURRENCY,
+    handler: processTestRunJob,
+    onCompleted: (job) => log.info({ jobId: job.id, testRunId: job.data.testRunId }, "test run job completed"),
+    onError: (error, job) => log.error({ jobId: job?.id, testRunId: job?.data.testRunId, error: messageOf(error) }, "test run job error"),
   });
 
   log.info(
     {
-      workerId: worker.id,
-      name: DISCOVERY_JOB_NAME,
+      discoveryWorker: discovery.id,
+      testRunWorker: testRuns.id,
       concurrency: env.WORKER_CONCURRENCY,
-      testRunWorkerId: testRunWorker.id,
-      testRunJob: TEST_RUN_JOB_NAME,
       headless: env.BROWSER_HEADLESS,
       aiProvider: env.AI_PROVIDER,
       storageDriver: env.STORAGE_DRIVER,
     },
-    "autotest worker started",
+    "autotest worker started (Postgres job queue)",
   );
 
   const shutdown = async (signal: string) => {
     log.info({ signal }, "shutting down worker");
-    const forceExit = setTimeout(() => process.exit(1), 10_000);
+    const forceExit = setTimeout(() => process.exit(1), SHUTDOWN_GRACE_MS);
     forceExit.unref();
-    await worker.close();
-    await testRunWorker.close();
+    await Promise.all([discovery.close(), testRuns.close()]);
     await closeAll();
     process.exit(0);
   };
-
   process.on("SIGTERM", () => void shutdown("SIGTERM"));
   process.on("SIGINT", () => void shutdown("SIGINT"));
 }
 
-main().catch((error) => {
-  logger.error({ error: error instanceof Error ? error.message : String(error) }, "fatal worker error");
+function messageOf(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
+try {
+  main();
+} catch (error) {
+  logger.error({ error: messageOf(error) }, "fatal worker error");
   process.exit(1);
-});
+}

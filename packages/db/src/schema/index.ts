@@ -7,3 +7,4 @@ export * from "./workflow";
 export * from "./artifacts";
 export * from "./coverage";
 export * from "./findings";
+export * from "./jobs";

@@ -37,7 +37,7 @@ export function groundControls(controls: DiscoveredControl[]): GroundedElement[]
 
 /**
  * Prefers a visible caption: `label:` for fields, `text:` for buttons and
- * links. Both survive markup changes and are what Jev is asked about when they
+ * links. Both survive markup changes and are what the AI agent is asked about when they
  * stop matching. Falls back to the positional role hint only when the control
  * has no caption at all.
  */

@@ -2,6 +2,8 @@ import {
   AiPageInterpretationSchema,
   AiWorkflowAnalysisSchema,
   type AiPageContext,
+  type AiPageDecision,
+  type AiPageDecisionInput,
   type AiPageInterpretation,
   type AiTestCaseContext,
   type AiTestCaseSuggestions,
@@ -10,6 +12,7 @@ import {
 import type { AIProvider } from "./types";
 import { sanitizePageContext } from "./sanitize";
 import { buildTestCaseTask, parseTestCaseSuggestions } from "./test-case-task";
+import { buildPageDecisionTask, parsePageDecision } from "./page-decision-task";
 
 export interface GeminiOptions {
   apiKey: string;
@@ -124,5 +127,9 @@ export class GeminiProvider implements AIProvider {
   async generateTestCases(context: AiTestCaseContext): Promise<AiTestCaseSuggestions> {
     const raw = await generateJson(this.options, buildTestCaseTask(context), CASE_GENERATION_TEMPERATURE);
     return parseTestCaseSuggestions(raw);
+  }
+
+  async decidePageAction(input: AiPageDecisionInput): Promise<AiPageDecision> {
+    return parsePageDecision(await generateJson(this.options, buildPageDecisionTask(input)));
   }
 }

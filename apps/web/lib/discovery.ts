@@ -1,6 +1,7 @@
 import { and, eq } from "drizzle-orm";
 import { discoverySessions, modules, projects } from "@repo/db/schema";
-import { AppError, createDiscoveryQueue, DISCOVERY_JOB_NAME, enqueueJob } from "@repo/core";
+import { enqueueJob } from "@repo/db";
+import { AppError, DISCOVERY_ATTEMPTS, DISCOVERY_BACKOFF, DISCOVERY_JOB_NAME, DISCOVERY_QUEUE } from "@repo/core";
 import { db } from "@/lib/db";
 
 export const DEFAULT_MODULE_NAME = "Whole site";
@@ -19,14 +20,6 @@ export async function enqueueDiscovery(input: {
   projectId: string;
   role?: string;
 }): Promise<string> {
-  if (!process.env.REDIS_URL) {
-    throw new AppError(
-      "REDIS_UNCONFIGURED",
-      "Redis is not configured. Start it with `docker compose up redis` and set REDIS_URL.",
-      503,
-    );
-  }
-
   const [project] = await db
     .select()
     .from(projects)
@@ -52,11 +45,12 @@ export async function enqueueDiscovery(input: {
   }
 
   try {
-    await enqueueJob(createDiscoveryQueue(process.env.REDIS_URL), DISCOVERY_JOB_NAME, {
-      discoverySessionId: sessionRow.id,
-      moduleId: input.moduleId,
-      projectId: input.projectId,
-      role: input.role,
+    await enqueueJob(db, {
+      queue: DISCOVERY_QUEUE,
+      name: DISCOVERY_JOB_NAME,
+      maxAttempts: DISCOVERY_ATTEMPTS,
+      backoffMs: DISCOVERY_BACKOFF,
+      data: { discoverySessionId: sessionRow.id, moduleId: input.moduleId, projectId: input.projectId, role: input.role },
     });
   } catch (error) {
     // A session nobody will ever pick up must not sit in QUEUED forever.

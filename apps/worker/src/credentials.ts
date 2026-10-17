@@ -62,7 +62,7 @@ export function forEnvironment(list: ResolvedCredential[], environmentId: string
   return list.filter((credential) => credential.environmentId === null || credential.environmentId === environmentId);
 }
 
-/** Every value that must be masked out of screenshots and scrubbed from AI/Jev traffic. */
+/** Every value that must be masked out of screenshots and scrubbed from AI traffic. */
 export function secretsOf(list: ResolvedCredential[]): string[] {
   return list.flatMap((credential) => [credential.username, credential.password]).filter((value): value is string => Boolean(value));
 }

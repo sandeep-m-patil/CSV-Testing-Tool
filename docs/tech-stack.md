@@ -58,7 +58,7 @@ repository today**:
 | Component | State | Note |
 | --- | --- | --- |
 | Gemini SDK (`@google/genai`) | **Absent** | No Google SDK dependency — Gemini is **hand-rolled REST** (`packages/ai/src/gemini.ts`), gated by `GEMINI_API_KEY`. Live calls untested. |
-| Jev (TypeSafe System One) | **Present** | `packages/ai/src/jev.ts` + `apps/worker/src/jev/`; enabled by `TYPESAFE_API_KEY`; wired in discovery and execution. Live calls untested. |
+| AI browser agent (replaces Jev) | **Present** | `packages/ai/src/page-decision-task.ts` + `apps/worker/src/browser-agent/`; on with a real `AI_PROVIDER`; wired in discovery and execution (incl. `GOAL` steps). Live calls untested. |
 | `csv-parse` / `papaparse` | **Absent** | Server-side RFC 4180 parsing lives in `packages/schemas/src/test-data.ts`; the legacy client parser (`apps/web/lib/test-cases/csv.ts`) is unreachable. |
 
 ---
@@ -121,23 +121,20 @@ Consequences worth being precise about:
 `parseTestCaseSuggestions`. Redaction enforced at `gemini.ts:100` via
 `sanitizePageContext`.
 
-### Jev Ultrafast — implemented via System One, wired
+### AI browser agent — replaces Jev
 
-Jev is called directly over TypeSafe System One from TypeScript (see
-`docs/requirements.md` §13). No Python sidecar and no second browser: Jev chooses
-among elements the worker enumerated, and Playwright acts on the chosen node.
+The TypeSafe/Jev integration was removed. The worker's browser agent
+(`apps/worker/src/browser-agent/`) combines **Playwright** (reads the page,
+performs every action) with the configured **model** (`AI_PROVIDER`, Gemini by
+default), which picks an element, answers a yes/no question, or chooses the next
+operation toward a goal. See `docs/requirements.md` §13.
 
 ```text
 structured target
   → semantic locator (Playwright, polled 3s)
-  → Jev dynamic resolution             (TYPESAFE_API_KEY)
+  → AI browser agent picks the element   (real AI_PROVIDER)
   → FAIL with diagnostic
 ```
-
-`createJevAgent` is built in discovery (`runner.ts:116`) and execution
-(`processor.ts:53`); enabled by `TYPESAFE_API_KEY`, a no-op otherwise. Discovery
-also uses Jev to recognise and complete login forms the heuristics miss, and to
-skip submit-like actions it judges irreversible.
 
 ### What the system does without either
 
