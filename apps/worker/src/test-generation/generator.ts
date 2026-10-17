@@ -4,6 +4,7 @@ import type { DiscoveryContext } from "../discovery/runner";
 import { classifyFields, type DiscoveredControl } from "./fields";
 import { buildScenariosForPage, isAuthForm } from "./scenarios";
 import { createAiCaseGenerator } from "./ai-generation";
+import { offSiteLinkCaptions, withoutOffSiteLinks } from "./off-site-links";
 
 const INPUT_TYPES = ["input", "textarea", "textbox", "select", "checkbox", "radio", "button", "a", "link"];
 
@@ -38,10 +39,12 @@ export async function generateTestCases(ctx: DiscoveryContext): Promise<number> 
   );
   const generateAiCases = createAiCaseGenerator(ctx);
   const takenNames = new Set(existing.keys());
+  // Several pages share a header or nav ("Home", "About"); one case per name per run.
+  const generatedNames = new Set<string>();
 
   for (const page of pages) {
     if (!visited.has(page.id)) continue;
-    const controls = await loadControls(ctx, page.id);
+    const controls = withoutOffSiteLinks(await loadControls(ctx, page.id), await offSiteLinkCaptions(ctx, page.id));
     const fields = classifyFields(controls);
     // A module may hold several roles; the login matrix is written against the
     // first one, which is the role the module itself was discovered with.
@@ -65,6 +68,8 @@ export async function generateTestCases(ctx: DiscoveryContext): Promise<number> 
 
     for (const scenario of scenarios) {
       const name = `${ctx.moduleName} — ${scenario.name}`;
+      if (generatedNames.has(name)) continue;
+      generatedNames.add(name);
       const description = `${scenario.description} (auto-generated from ${isAuthForm(fields) ? "auth form" : "form"} analysis on ${page.name}).`;
       const precondition = ctx.credentials.length > 0 ? "login with role credentials" : null;
 
@@ -131,6 +136,7 @@ async function loadControls(ctx: DiscoveryContext, pageId: string): Promise<Disc
       cssSelector: row.cssSelector,
       ariaAttributes: row.ariaAttributes,
       inputType: row.inputType,
+      enabled: row.enabled,
     }));
 }
 

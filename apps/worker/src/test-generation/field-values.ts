@@ -35,6 +35,7 @@ export function validValueFor(field: ClassifiedField, index: number): string {
 }
 
 export function isFillable(field: ClassifiedField): boolean {
+  if (!field.isEnabled) return false;
   if (field.inputType && SKIPPED_TYPES.has(field.inputType)) return false;
   return ["text", "email", "password", "select", "checkbox", "radio"].includes(field.role);
 }

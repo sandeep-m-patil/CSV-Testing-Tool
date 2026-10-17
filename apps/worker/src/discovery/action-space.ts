@@ -1,6 +1,6 @@
 import type { CollectedElement, DetectedAction } from "@repo/browser";
 import type { LocatorHints } from "@repo/browser";
-import { isInScope, type ModuleScope } from "./scope";
+import { isInScope, pageAddress, type ModuleScope } from "./scope";
 
 export interface IndexedAction {
   index: number;
@@ -132,7 +132,11 @@ export function decideOneAction(space: IndexedAction[], ctx: ActorContext): Acto
   }
 
   // 3) Submit a fully-filled form (non-dangerous submit only)
-  const submit = findSubmit(executable, SUBMIT_TEXT) ?? findSubmit(executable, /./); // fall back to any reviewed submit
+  // The catch-all only takes real submit controls: matching any CLICK here
+  // pressed the first button on every form-less page (a menu, a header) and
+  // pre-empted link navigation, so crawls stalled after one or two pages.
+  const realSubmits = executable.filter((item) => item.operation === "SUBMIT");
+  const submit = findSubmit(executable, SUBMIT_TEXT) ?? findSubmit(realSubmits, /./);
   if (submit && !submit.action.dangerous && !submit.action.blocked) {
     return { kind: "submit-form", index: submit.index, reason: `submit form via "${submit.label}"` };
   }
@@ -146,6 +150,7 @@ export function decideOneAction(space: IndexedAction[], ctx: ActorContext): Acto
         item.action.target.url &&
         isInScope(ctx.scope, item.action.target.url) &&
         !ctx.visitedUrls.has(item.action.target.url) &&
+        !ctx.visitedUrls.has(pageAddress(item.action.target.url)) &&
         !ctx.executedKeys.has(actionKey(item.action)) &&
         ctx.navigationDepth < ctx.navigationDepthBudget,
     )
@@ -196,10 +201,12 @@ function findField(items: IndexedAction[], operation: string, match: (label: str
 }
 
 function findSubmit(items: IndexedAction[], match: RegExp): IndexedAction | undefined {
+  // Label and caption are tested one at a time: joined, an empty label leaves a
+  // leading space that the anchored submit patterns can never match.
   return items.find(
     (item) =>
       (item.operation === "SUBMIT" || item.operation === "CLICK") &&
-      match.test(`${item.selector.label ?? ""} ${item.action.target.text ?? ""}`),
+      [item.selector.label, item.action.target.text].some((caption) => caption !== null && caption !== undefined && match.test(caption.trim())),
   );
 }
 

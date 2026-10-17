@@ -1,3 +1,4 @@
+import { FRAME_BOUNDARY } from "@repo/browser";
 import type { DiscoveredControl } from "./fields";
 
 /**
@@ -8,7 +9,9 @@ import type { DiscoveredControl } from "./fields";
  * mixes field types or has a second form (search bar, newsletter signup).
  *
  * Preference: test id → stable id → name attribute → label/placeholder →
- * button caption. Null when the control carries none of these.
+ * button caption. Null when the control carries none of these. A control
+ * inside an iframe keeps its full framed selector: label, name and caption
+ * lookups only search the top document.
  */
 
 const MAX_CAPTION_LENGTH = 60;
@@ -23,6 +26,7 @@ const FIELD_TAGS: Record<string, string> = {
 };
 
 export function elementHint(control: DiscoveredControl): string | null {
+  if (control.cssSelector?.includes(FRAME_BOUNDARY)) return `selector:${control.cssSelector}`;
   return testIdHint(control) ?? idHint(control) ?? nameHint(control) ?? captionHint(control);
 }
 

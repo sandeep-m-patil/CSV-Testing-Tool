@@ -12,7 +12,7 @@ import type { ActorContext, IndexedAction } from "./action-space";
 import { actionKey, buildActionSpace, decideOneAction } from "./action-space";
 import { DiscoveryStore, type ActionRecord } from "./store";
 import { captureEvidence } from "../evidence";
-import { buildModuleScope, describeScope, isInScope, type ModuleScope } from "./scope";
+import { buildModuleScope, describeScope, isInScope, pageAddress, type ModuleScope } from "./scope";
 import { pageIdentity, stateFingerprint, stateName, type PageIdentity } from "./page-identity";
 import { interpretPageWithFallback } from "./ai-enrichment";
 import { buildWorkflows, enrichWithAiAnalysis } from "../workflows/builder";
@@ -304,6 +304,7 @@ async function explorePage(
   const currentUrl = page.url();
   if (visitedUrls.has(currentUrl) || depth > actor.navigationDepthBudget) return;
   visitedUrls.add(currentUrl);
+  visitedUrls.add(pageAddress(currentUrl));
   actor.navigationDepth = depth;
 
   if (!(await enterModuleScope(page, ctx, actor, currentUrl))) return;
@@ -433,7 +434,13 @@ async function explorePage(
         });
       }
       await explorePage(page, ctx, actor, budget, visitedUrls, depth + 1, role);
-      return;
+      // A submit moved the app into a new state (signed in, record created);
+      // replaying it is wrong. A plain link is backtracked so a hub page's
+      // other links get explored, not just the first one.
+      if (decision.kind === "submit-login" || decision.kind === "submit-form") return;
+      actor.navigationDepth = depth;
+      await returnTo(page, currentUrl);
+      if (page.url() !== currentUrl && !isInScope(ctx.scope, page.url())) return;
     }
   }
 }
@@ -472,6 +479,7 @@ async function persistPageSnapshot(
       ariaAttributes: element.ariaAttributes,
       visible: element.visible,
       enabled: element.enabled,
+      inputType: element.inputType,
     })),
   );
   budget.pages += 1;

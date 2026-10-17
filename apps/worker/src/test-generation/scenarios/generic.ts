@@ -19,7 +19,7 @@ export function hasFillableFields(fields: ClassifiedField[]): boolean {
 
 /** The form's own submit control as discovery saw it, else the generic resolver. */
 function submitHintFor(fields: ClassifiedField[]): string {
-  return fields.find((field) => field.role === "submit")?.hint ?? FALLBACK_SUBMIT_HINT;
+  return fields.find((field) => field.role === "submit" && field.isEnabled)?.hint ?? FALLBACK_SUBMIT_HINT;
 }
 
 interface FormTarget {

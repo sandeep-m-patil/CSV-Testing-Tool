@@ -34,14 +34,17 @@ async function checkStayedOnPage(page: Page, fromUrl: string): Promise<Assertion
   return hasStayed ? SATISFIED : { isSatisfied: false, detail: `unexpectedly navigated to ${page.url()}` };
 }
 
+/** Error selectors also match empty containers and `input.error`; look past them. */
+const MAX_ERROR_CANDIDATES = 10;
+
 async function hasVisibleError(page: Page): Promise<boolean> {
-  const alert = page.locator(ERROR_SELECTORS).first();
-  if ((await alert.count().catch(() => 0)) > 0) {
-    const isVisible = await alert.isVisible().catch(() => false);
-    if (isVisible) {
-      const text = ((await alert.innerText().catch(() => "")) ?? "").trim();
-      if (text.length > 0) return true;
-    }
+  const candidates = page.locator(ERROR_SELECTORS);
+  const count = Math.min(await candidates.count().catch(() => 0), MAX_ERROR_CANDIDATES);
+  for (let index = 0; index < count; index += 1) {
+    const alert = candidates.nth(index);
+    if (!(await alert.isVisible().catch(() => false))) continue;
+    const text = ((await alert.innerText().catch(() => "")) ?? "").trim();
+    if (text.length > 0) return true;
   }
   const body = ((await page.locator("body").innerText().catch(() => "")) ?? "").slice(0, 4000);
   return ERROR_TEXT_PATTERN.test(body);

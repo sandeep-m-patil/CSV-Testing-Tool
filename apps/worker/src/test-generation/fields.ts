@@ -20,6 +20,8 @@ export interface DiscoveredControl {
   ariaAttributes: unknown;
   /** HTML input type (`password`, `email`...), when the element is an input. */
   inputType?: string | null;
+  /** False for a disabled or read-only control; absent means enabled. */
+  enabled?: boolean;
 }
 
 export interface ClassifiedField {
@@ -31,6 +33,8 @@ export interface ClassifiedField {
   inputType: string | null;
   /** Hint for this exact control; falls back to the positional role hint. */
   hint: string;
+  /** Disabled or read-only controls cannot be filled or clicked. */
+  isEnabled: boolean;
 }
 
 function haystack(control: DiscoveredControl): string {
@@ -88,6 +92,7 @@ export function classifyFields(controls: DiscoveredControl[]): ClassifiedField[]
       label: labelFor(control, `${role} ${ordinal + 1}`),
       inputType: control.inputType?.toLowerCase() ?? null,
       hint: elementHint(control) ?? positional,
+      isEnabled: control.enabled !== false,
     });
   }
   return out;

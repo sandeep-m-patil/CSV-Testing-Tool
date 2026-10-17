@@ -60,6 +60,12 @@ describe("field hints", () => {
     expect(field?.hint).toBe("text:Create order");
   });
 
+  it("keeps the full framed selector for a control inside an iframe", () => {
+    const framed = 'iframe[name="pay"] >> internal:control=enter-frame >> form > input';
+    const [field] = classifyFields([control({ cssSelector: framed, name: "card", label: "Card" })]);
+    expect(field?.hint).toBe(`selector:${framed}`);
+  });
+
   it("falls back to a positional role hint when nothing identifies the control", () => {
     const fields = classifyFields([control({}), control({})]);
     expect(fields.map((field) => field.hint)).toEqual(["role:text", "role:text:1"]);

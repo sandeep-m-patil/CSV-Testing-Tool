@@ -1,3 +1,4 @@
+import { FRAME_BOUNDARY } from "@repo/browser";
 import type { GeneratedCase } from "../../test-execution/types";
 import { ScenarioBuilder } from "../scenario-builder";
 import type { DiscoveredControl } from "../fields";
@@ -43,6 +44,9 @@ export function looksLikeCart(controls: DiscoveredControl[]): boolean {
 }
 
 function hintForCaption(control: DiscoveredControl): string {
+  // A caption lookup only searches the top document; inside an iframe the
+  // framed selector is the only address that reaches the control.
+  if (control.cssSelector?.includes(FRAME_BOUNDARY)) return `selector:${control.cssSelector}`;
   return `text:${caption(control, "")}`;
 }
 
@@ -52,7 +56,8 @@ export function buildNavigationScenarios(pageUrl: string, controls: DiscoveredCo
   const out: GeneratedCase[] = [];
 
   for (const link of links.slice(0, 8)) {
-    const label = caption(link, "link");
+    // An icon-only link has no caption to find it by; a case for it could never run.
+    const label = caption(link, "");
     if (label.length === 0) continue;
 
     out.push(

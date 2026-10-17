@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildModuleScope, isInScope } from "./scope";
+import { buildModuleScope, isInScope, pageAddress } from "./scope";
 
 describe("buildModuleScope", () => {
   it("keeps the base URL's path instead of widening to the whole origin", () => {
@@ -48,5 +48,16 @@ describe("isInScope", () => {
     const app = buildModuleScope({ baseUrl: "https://host.test/app" });
     expect(isInScope(app, "https://host.test/app/orders")).toBe(true);
     expect(isInScope(app, "https://host.test/blog")).toBe(false);
+  });
+});
+
+describe("pageAddress", () => {
+  it("drops an in-page anchor", () => {
+    expect(pageAddress("https://host.test/menu#news")).toBe("https://host.test/menu");
+  });
+
+  it("keeps a client-side hash route", () => {
+    expect(pageAddress("https://host.test/#/orders")).toBe("https://host.test/#/orders");
+    expect(pageAddress("https://host.test/#!/orders")).toBe("https://host.test/#!/orders");
   });
 });

@@ -90,6 +90,18 @@ export function filterInScope<T>(urls: readonly T[], scope: ModuleScope, toUrl: 
   return urls.filter((item) => isInScope(scope, toUrl(item)));
 }
 
+/**
+ * The page a URL shows. A plain fragment ("#news") scrolls within the same
+ * page, so it is dropped; a hash route ("#/orders", "#!/orders") is a page of
+ * its own in a client-routed app, so it is kept.
+ */
+export function pageAddress(url: string): string {
+  const hashAt = url.indexOf("#");
+  if (hashAt < 0) return url;
+  const fragment = url.slice(hashAt + 1);
+  return fragment.startsWith("/") || fragment.startsWith("!") ? url : url.slice(0, hashAt);
+}
+
 export function describeScope(scope: ModuleScope): string {
   return scope.prefixes.length > 0 ? scope.prefixes.join(", ") : ROOT_PATH;
 }

@@ -38,6 +38,8 @@ interface AuthSpec {
   submit: Submit;
   expect: Expectation | "manual";
   maskingOnly?: boolean;
+  /** Only meaningful with the module's real account; blocked rather than faked without one. */
+  needsRealAccount?: boolean;
 }
 
 /** The module's stored login, used to make credential-dependent cases real. */
@@ -107,7 +109,7 @@ function fillValues(credential: AuthCredential | undefined): FillValues {
 
 /** Mirrors a conventional manual login test matrix (happy path, negative, boundary, security, UI). */
 const AUTH_SPECS: AuthSpec[] = [
-  { name: "Login with valid credentials", type: "HAPPY_PATH", priority: "HIGH", testData: "valid email + valid password", expected: "User logs in successfully and is taken away from the login page", email: "valid", password: "valid", submit: "submit", expect: { kind: "navigated_away", fromUrl: "" } },
+  { name: "Login with valid credentials", type: "HAPPY_PATH", priority: "HIGH", testData: "valid email + valid password", expected: "User logs in successfully and is taken away from the login page", email: "valid", password: "valid", submit: "submit", expect: { kind: "navigated_away", fromUrl: "" }, needsRealAccount: true },
   { name: "Invalid email with valid password", type: "NEGATIVE", priority: "HIGH", testData: "malformed email + valid password", expected: "Login fails with a validation or error message", email: "invalid", password: "valid", submit: "submit", expect: { kind: "stayed_on_page", fromUrl: "" } },
   { name: "Valid email with invalid password", type: "NEGATIVE", priority: "HIGH", testData: "valid email + wrong password", expected: "Login fails with an error message", email: "valid", password: "invalid", submit: "submit", expect: { kind: "stayed_on_page", fromUrl: "" } },
   { name: "Invalid email and invalid password", type: "NEGATIVE", priority: "MEDIUM", testData: "malformed email + wrong password", expected: "Login fails", email: "invalid", password: "invalid", submit: "submit", expect: { kind: "stayed_on_page", fromUrl: "" } },
@@ -136,8 +138,11 @@ function materialise(pageUrl: string, spec: AuthSpec, values: FillValues): Gener
   const builder = new ScenarioBuilder(pageUrl);
 
   if (!spec.maskingOnly) {
-    builder.fill(EMAIL_HINT, values.email[spec.email]);
-    builder.fill(PASSWORD_HINT, values.password[spec.password]);
+    // Without a stored account a "successful login" can only fail, and that FAIL
+    // would blame the app. Tokens make the run report it BLOCKED: add a credential.
+    const isPlaceholder = spec.needsRealAccount === true && !values.isReal;
+    builder.fill(EMAIL_HINT, isPlaceholder ? USERNAME_TOKEN : values.email[spec.email]);
+    builder.fill(PASSWORD_HINT, isPlaceholder ? PASSWORD_TOKEN : values.password[spec.password]);
     if (spec.submit === "submit") builder.submit(SUBMIT_HINT);
     if (spec.submit === "enter") builder.press(PASSWORD_HINT, "Enter");
   }
@@ -171,8 +176,8 @@ function resolveExpectation(expect: Expectation, pageUrl: string): Expectation {
 
 /**
  * Generates the login matrix. Pass the module's stored credential so the
- * credential-dependent cases exercise a real account; without one they fall back
- * to demo placeholders and are expected to fail until credentials are added.
+ * credential-dependent cases exercise a real account; without one the successful
+ * login case is blocked until a credential is added, and the rest use placeholders.
  */
 export function buildAuthScenarios(pageUrl: string, credential?: AuthCredential): GeneratedCase[] {
   const values = fillValues(credential);

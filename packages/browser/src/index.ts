@@ -1,5 +1,6 @@
 export * from "./types";
 export * from "./element-collector";
+export * from "./page-snapshot";
 export * from "./action-detector";
 export * from "./navigation-detector";
 export * from "./page-analyzer";

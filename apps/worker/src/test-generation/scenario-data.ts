@@ -31,6 +31,8 @@ export const SUBMIT_HINTS = ["submit", "sign in", "log in", "login", "sign up", 
 
 export const ERROR_SELECTORS = [
   '[role="alert"]',
+  '[data-test="error"]',
+  '[data-testid*="error" i]',
   ".error",
   ".error-message",
   ".alert-error",
@@ -43,7 +45,7 @@ export const ERROR_SELECTORS = [
 ].join(", ");
 
 export const ERROR_TEXT_PATTERN =
-  /invalid|required|incorrect|failed|does not exist|not found|try again|denied|unauthorized|too short|must be|enter a|enter your|credentials/i;
+  /invalid|required|incorrect|failed|does not exist|not found|try again|denied|unauthorized|too short|must be|enter a|enter your|credentials|do(es)? not match|doesn't match|not recogni[sz]ed|wrong (username|email|password)/i;
 
 export const CRASH_TEXT_PATTERN =
   /application error|something went wrong|internal server error|cannot read propert|uncaught|fatal error/i;

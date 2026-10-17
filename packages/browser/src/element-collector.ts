@@ -1,15 +1,11 @@
-import type { Page } from "playwright";
+import type { Frame, Page } from "playwright";
 import type { CollectedElement, PageSnapshot } from "./types";
-
-export interface PageSnapshotOptions {
-  timeoutMs?: number;
-}
 
 /**
  * Runs inside the browser. Must be fully self-contained — Playwright serializes it.
  * Gathers interactive/semantic elements with locator-priority metadata.
  */
-function collectInPage(): PageSnapshot {
+export function collectInPage(): PageSnapshot {
   type AnyEl = Element & { disabled?: boolean };
 
   const isVisible = (el: Element): boolean => {
@@ -21,7 +17,22 @@ function collectInPage(): PageSnapshot {
     return true;
   };
 
+  // An element inside an open shadow root is addressed as "<host> >> <path in
+  // the root>". Playwright's CSS pierces open shadow DOM, so each segment only
+  // has to be unique within its own root.
+  const rootOf = (el: Element): Document | ShadowRoot => el.getRootNode() as Document | ShadowRoot;
+  const hostOf = (el: Element): Element | null => {
+    const root = rootOf(el);
+    return root instanceof ShadowRoot ? root.host : null;
+  };
+
   const buildSelector = (el: Element): string => {
+    const host = hostOf(el);
+    const local = buildLocalSelector(el);
+    return host ? `${buildSelector(host)} >> ${local}` : local;
+  };
+
+  const buildLocalSelector = (el: Element): string => {
     const testIds = ["data-testid", "data-test-id", "data-qa", "data-cy"];
     for (const attr of testIds) {
       const value = el.getAttribute(attr);
@@ -29,7 +40,7 @@ function collectInPage(): PageSnapshot {
     }
     if (el.id) {
       const idSelector = `#${el.id.replace(/[^a-zA-Z0-9_-]/g, "\\$&")}`;
-      if (document.querySelectorAll(idSelector).length === 1) return idSelector;
+      if (rootOf(el).querySelectorAll(idSelector).length === 1) return idSelector;
     }
     const parts: string[] = [];
     let node: Element | null = el;
@@ -41,8 +52,10 @@ function collectInPage(): PageSnapshot {
         break;
       }
       const parentEl: HTMLElement | null = node?.parentElement ?? null;
-      if (parentEl) {
-        const siblings = Array.from(parentEl.children).filter((child: Element) => child.tagName === node!.tagName);
+      // A shadow root's top-level children have no parentElement, only the root.
+      const siblingSource: ParentNode | null = parentEl ?? (node.parentNode instanceof ShadowRoot ? node.parentNode : null);
+      if (siblingSource) {
+        const siblings = Array.from(siblingSource.children).filter((child: Element) => child.tagName === node!.tagName);
         if (siblings.length > 1) {
           const index = siblings.indexOf(node) + 1;
           part += `:nth-of-type(${index})`;
@@ -56,6 +69,8 @@ function collectInPage(): PageSnapshot {
   };
 
   const getXPath = (el: Element): string => {
+    // XPath cannot cross a shadow boundary; the CSS selector is the address there.
+    if (hostOf(el)) return "";
     const parts: string[] = [];
     let node: Element | null = el;
     while (node && node.nodeType === 1) {
@@ -84,7 +99,7 @@ function collectInPage(): PageSnapshot {
     if (aria) return aria.trim();
     const labelledBy = el.getAttribute("aria-labelledby");
     if (labelledBy) {
-      const target = document.getElementById(labelledBy.split(" ")[0] ?? "");
+      const target = rootOf(el).getElementById(labelledBy.split(" ")[0] ?? "");
       if (target) {
         const text = (target.innerText || "").trim();
         if (text) return text;
@@ -147,7 +162,7 @@ function collectInPage(): PageSnapshot {
       const type = (el.getAttribute("type") || "text").toLowerCase();
       if (type === "checkbox") return "checkbox";
       if (type === "radio") return "radio";
-      if (type === "submit" || type === "button" || type === "reset") return "button";
+      if (type === "submit" || type === "button" || type === "reset" || type === "image") return "button";
       return "input";
     }
     if (role === "textbox" || role === "searchbox" || role === "spinbutton" || role === "slider") return "textbox";
@@ -186,7 +201,16 @@ function collectInPage(): PageSnapshot {
   const elements: CollectedElement[] = [];
   const seen = new Set<string>();
 
-  for (const el of Array.from(document.querySelectorAll(targets))) {
+  /** querySelectorAll that also descends into every open shadow root. */
+  const queryDeep = (root: Document | ShadowRoot, selector: string): Element[] => {
+    const found = Array.from(root.querySelectorAll(selector));
+    for (const node of Array.from(root.querySelectorAll("*"))) {
+      if (node.shadowRoot) found.push(...queryDeep(node.shadowRoot, selector));
+    }
+    return found;
+  };
+
+  for (const el of queryDeep(document, targets)) {
     if (!isVisible(el)) continue;
     const role = getRole(el);
     const elementType = determineType(el, role);
@@ -231,7 +255,8 @@ function collectInPage(): PageSnapshot {
       xpath,
       ariaAttributes,
       visible: true,
-      enabled: !(el as AnyEl).disabled,
+      // A read-only field cannot be typed into either, so it is not "enabled" for input.
+      enabled: !(el as AnyEl).disabled && (el as AnyEl & { readOnly?: boolean }).readOnly !== true,
       href,
       inputType,
       formField: ["input", "textarea", "select", "checkbox", "radio"].includes(elementType),
@@ -252,27 +277,13 @@ function collectInPage(): PageSnapshot {
   };
 }
 
-export async function snapshotPage(page: Page, options: PageSnapshotOptions = {}): Promise<PageSnapshot> {
-  void options;
-  await ensureRuntimeHelpers(page);
-  return page.evaluate(collectInPage);
-}
-
-export async function safeSnapshot(page: Page, options: PageSnapshotOptions = {}): Promise<PageSnapshot | null> {
-  try {
-    return await snapshotPage(page, options);
-  } catch {
-    return null;
-  }
-}
-
 /**
  * esbuild's keepNames injects `__name(fn, "fnName")` statements that Playwright
  * serializes into the collector's source. The helper lives in module scope, so it
  * is undefined once the serialized function runs inside the page. Provide it as a
  * global so the injected annotation resolves in the page context.
  */
-export async function ensureRuntimeHelpers(page: Page): Promise<void> {
+export async function ensureRuntimeHelpers(page: Page | Frame): Promise<void> {
   await page.evaluate(() => {
     const globalObject = globalThis as unknown as Record<string, unknown>;
     if (globalObject.__name === undefined) {

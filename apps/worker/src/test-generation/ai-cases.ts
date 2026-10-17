@@ -1,5 +1,6 @@
 import type { AiCaseElement, AiExpectation, AiTestCase, AiTestStep } from "@repo/schemas";
 import type { ExecutableStep, Expectation, GeneratedCase } from "../test-execution/types";
+import { FRAME_BOUNDARY } from "@repo/browser";
 import { classifyFields, hintFor, type ClassifiedField, type DiscoveredControl } from "./fields";
 
 /**
@@ -42,6 +43,8 @@ export function groundControls(controls: DiscoveredControl[]): GroundedElement[]
  * has no caption at all.
  */
 function hintForControl(control: DiscoveredControl, isField: boolean, field: ClassifiedField | undefined): string {
+  // Inside an iframe only the framed selector reaches the control.
+  if (control.cssSelector?.includes(FRAME_BOUNDARY)) return `selector:${control.cssSelector}`;
   const caption = (isField ? control.label ?? control.placeholder : control.text ?? control.label)?.trim();
   if (caption) return `${isField ? "label" : "text"}:${caption}`;
   return field ? hintFor(field) : "role:text";

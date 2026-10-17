@@ -27,6 +27,9 @@ export interface DiscoveryScope {
   moduleId: string;
 }
 
+/** Matches `discovered_elements.input_type` (varchar 32). */
+const MAX_INPUT_TYPE_LENGTH = 32;
+
 export interface ElementRecord {
   elementType: string;
   role: string | null;
@@ -40,6 +43,8 @@ export interface ElementRecord {
   ariaAttributes: Record<string, string> | null;
   visible: boolean;
   enabled: boolean;
+  /** HTML input type; test generation picks values and skips fields by it. */
+  inputType: string | null;
 }
 
 export interface ActionRecord {
@@ -251,7 +256,9 @@ export class DiscoveryStore {
       action: input.action ?? "navigate",
       role: input.role ?? null,
       isNewPage: input.isNewPage ?? false,
-    });
+    })
+      // Backtracking re-walks known links; the edge is already recorded.
+      .onConflictDoNothing();
   }
 
   async insertElements(pageId: string, elements: ElementRecord[]): Promise<number> {
@@ -273,6 +280,7 @@ export class DiscoveryStore {
       ariaAttributes: element.ariaAttributes,
       visible: element.visible,
       enabled: element.enabled,
+      inputType: element.inputType?.slice(0, MAX_INPUT_TYPE_LENGTH) ?? null,
     }));
     await this.db.insert(discoveredElements).values(rows);
     return rows.length;

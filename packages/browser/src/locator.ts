@@ -1,4 +1,5 @@
 import type { Locator, Page } from "playwright";
+import { FRAME_BOUNDARY } from "./page-snapshot";
 
 /**
  * Locator priority (spec §15):
@@ -15,6 +16,9 @@ export interface LocatorHints {
 }
 
 export async function resolveLocator(page: Page, hints: LocatorHints): Promise<Locator> {
+  // Semantic lookups (test id, role, label) never enter an iframe and could
+  // match a look-alike in the top document; the framed selector is exact.
+  if (hints.cssSelector?.includes(FRAME_BOUNDARY)) return page.locator(hints.cssSelector).first();
   const candidates: Array<() => Locator> = [];
   if (hints.testId) {
     candidates.push(() => page.getByTestId(hints.testId as string));

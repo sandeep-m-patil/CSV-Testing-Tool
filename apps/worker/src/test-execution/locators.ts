@@ -112,13 +112,23 @@ function labelOf(hint: string): string | null {
  * which snapshot `div:nth-of-type(...)` selectors do not.
  */
 async function resolveByAccessibleName(page: Page, name: string): Promise<Locator | null> {
+  // Captions are recorded from rendered text, which applies CSS text-transform
+  // ("ADD TO CART"), while accessible names keep the DOM's case ("Add to Cart").
+  const anyCase = new RegExp(`^\\s*${escapeRegExp(name)}\\s*$`, "i");
   const strategies: Locator[] = [
     page.getByRole("button", { name, exact: true }),
     page.getByRole("link", { name, exact: true }),
     page.getByRole("heading", { name, exact: true }),
     page.getByText(name, { exact: true }),
+    page.getByRole("button", { name: anyCase }),
+    page.getByRole("link", { name: anyCase }),
+    page.getByText(anyCase),
   ];
   return firstVisible(strategies);
+}
+
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
 /** Resolves a form field by its visible label, placeholder or accessible name. */

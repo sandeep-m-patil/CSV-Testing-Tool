@@ -50,6 +50,12 @@ describe("buildGenericScenarios", () => {
     expect(cases[0]?.steps.find((step) => step.action === "SUBMIT")?.target).toBe("role:submit");
   });
 
+  it("leaves disabled and read-only fields alone", () => {
+    const locked = { ...field("locked", "textarea", null), enabled: false };
+    const cases = buildGenericScenarios(PAGE, "Notes", classifyFields([field("note", "textarea", null), locked]));
+    expect(cases.flatMap((generated) => generated.steps).some((step) => step.target.includes("locked"))).toBe(false);
+  });
+
   it("skips payload cases when the form has no free-text field", () => {
     const cases = buildGenericScenarios(PAGE, "Booking", classifyFields([field("when", "input", "date")]));
     expect(cases.map((generated) => generated.type)).toEqual(["HAPPY_PATH", "VALIDATION"]);

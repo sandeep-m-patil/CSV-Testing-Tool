@@ -1,6 +1,6 @@
 import type { Page } from "playwright";
 import { detectActions } from "./action-detector";
-import { safeSnapshot } from "./element-collector";
+import { safeSnapshot } from "./page-snapshot";
 import { detectNavigation, type NavigationOptions } from "./navigation-detector";
 import { classifyPage, type PageClassification } from "./page-analyzer";
 import type { DetectedAction, NavigationCandidate, PageSnapshot } from "./types";
