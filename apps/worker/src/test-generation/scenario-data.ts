@@ -27,7 +27,7 @@ export const LONG_INPUT_LENGTH = 500;
 export const EMAIL_HINTS = ["email", "e-mail", "mail", "username", "user name", "userid", "login id"];
 export const PASSWORD_HINTS = ["password", "passwd", "pwd", "pass word", "secret", "passphrase"];
 
-export const SUBMIT_HINTS = ["submit", "sign in", "log in", "login", "continue", "next", "save", "send"];
+export const SUBMIT_HINTS = ["submit", "sign in", "log in", "login", "sign up", "register", "continue", "next", "save", "send", "create", "update", "confirm", "apply"];
 
 export const ERROR_SELECTORS = [
   '[role="alert"]',

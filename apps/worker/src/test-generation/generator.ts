@@ -5,7 +5,7 @@ import { classifyFields, type DiscoveredControl } from "./fields";
 import { buildScenariosForPage, isAuthForm } from "./scenarios";
 import { createAiCaseGenerator } from "./ai-generation";
 
-const INPUT_TYPES = ["input", "textarea", "select", "button", "a", "link"];
+const INPUT_TYPES = ["input", "textarea", "textbox", "select", "checkbox", "radio", "button", "a", "link"];
 
 /**
  * Deterministically generate DRAFT test cases from the executed action trace.

@@ -115,13 +115,25 @@ async function actOn(page: Page, locator: Locator, step: ExecutableStep, ctx: St
   }
 }
 
-/** Native selects by label then value; custom dropdowns (no <select>) by click. */
+/**
+ * Native selects by label then value; custom dropdowns (no <select>) by click.
+ * No value means "any valid choice": the first option after a placeholder.
+ */
 async function selectStep(locator: Locator, value: string): Promise<void> {
-  if (!value) return locator.click();
+  if (!value) return selectFirstRealOption(locator);
   const byLabel = await locator.selectOption({ label: value }).then(() => true).catch(() => false);
   if (byLabel) return;
   const byValue = await locator.selectOption(value).then(() => true).catch(() => false);
   if (!byValue) await locator.click();
+}
+
+/** Index 1 skips a "Choose…" placeholder; a single-option select falls back to 0. */
+async function selectFirstRealOption(locator: Locator): Promise<void> {
+  for (const index of [1, 0]) {
+    const isSelected = await locator.selectOption({ index }).then(() => true).catch(() => false);
+    if (isSelected) return;
+  }
+  await locator.click();
 }
 
 /** WAIT on a hint waits for that element; otherwise waits `value` ms (capped). */

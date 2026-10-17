@@ -202,7 +202,9 @@ function collectInPage(): PageSnapshot {
     const text = ((el as HTMLElement).innerText || el.textContent || "").trim().slice(0, 300);
     const name = el.getAttribute("name") || null;
     const placeholder = el.getAttribute("placeholder") || null;
-    const href = el.tagName === "A" ? el.getAttribute("href") : null;
+    // The resolved href, not the attribute: a relative "details" on /shop/items
+    // means /shop/details, which only the browser's own resolution gets right.
+    const href = el.tagName === "A" ? (el as HTMLAnchorElement).href || el.getAttribute("href") : null;
     const inputType = el.tagName === "INPUT" ? (el.getAttribute("type") || "text").toLowerCase() : null;
 
     const ariaAttributes: Record<string, string> = {};

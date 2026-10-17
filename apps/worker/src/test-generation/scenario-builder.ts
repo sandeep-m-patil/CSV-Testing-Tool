@@ -25,6 +25,15 @@ export class ScenarioBuilder {
     return this.add("FILL", target, value, ACTION_TYPE);
   }
 
+  /** An empty value picks the first real option when the case runs. */
+  select(target: string, value: string): this {
+    return this.add("SELECT", target, value, ACTION_TYPE);
+  }
+
+  check(target: string): this {
+    return this.add("CHECK", target, undefined, ACTION_TYPE);
+  }
+
   press(target: string, value: string): this {
     return this.add("PRESS", target, value, ACTION_TYPE);
   }

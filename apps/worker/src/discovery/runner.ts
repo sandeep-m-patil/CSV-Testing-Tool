@@ -22,6 +22,7 @@ import { createPageAgent } from "../browser-agent/factory";
 import { attemptAgentLogin, confirmLoginWithAgent, hasPasswordField, isIrreversibleByAgent, shouldLoginWithAgent } from "./ai-assist";
 import { loadModuleCredentials, secretsOf, type ResolvedCredential } from "../credentials";
 import { displayFillValue } from "./display-value";
+import { openStartPage, returnTo, settlePage, StartPageError } from "./navigation";
 
 /** Typed values for logs and captions, with credentials masked. */
 function shownValue(ctx: DiscoveryContext, chosen: IndexedAction, value: string): string {
@@ -187,7 +188,7 @@ async function visitedPages(ctx: DiscoveryContext): Promise<number> {
 }
 
 async function exploreAsRole(browser: Browser, ctx: DiscoveryContext, credential: DecodedCredential, budget: StepBudget): Promise<void> {
-  const browserContext = await browser.newContext({ locale: "en-US" });
+  const browserContext = await browser.newContext({ locale: "en-US", ignoreHTTPSErrors: true });
   const page = await browserContext.newPage();
   page.setDefaultTimeout(env.DISCOVERY_TIMEOUT_MS);
   page.setDefaultNavigationTimeout(env.DISCOVERY_TIMEOUT_MS);
@@ -213,17 +214,22 @@ async function exploreAsRole(browser: Browser, ctx: DiscoveryContext, credential
   };
 
   try {
-    await page.goto(ctx.scope.startUrl, { waitUntil: "domcontentloaded" }).catch(() => undefined);
+    const start = await openStartPage(page, ctx.scope.startUrl);
+    if (start.isHttpError) await ctx.store.log("warn", `Start page answered HTTP ${start.status}; exploring what it rendered.`);
     const first = await analyzeCurrentPage(page, navOptions(ctx));
     if (first && looksLikeLogin(first)) {
       actor.onLoginPage = true;
       await ctx.store.log("event", `Login page detected at ${page.url()}; authenticating as "${credential.role}".`);
+    } else if (!isInScope(ctx.scope, page.url())) {
+      await ctx.store.log("warn", `Start URL redirected to ${page.url()}, outside the module scope. If that is the application, set the project's base URL to it.`);
     } else {
       await ctx.store.log("event", `Started at ${page.url()} (no login required).`);
     }
 
     await explorePage(page, ctx, actor, budget, visitedUrls, 0, credential.role);
   } catch (error) {
+    // An unreachable start URL fails the whole discovery with its real reason.
+    if (error instanceof StartPageError) throw error;
     await ctx.store.log("warn", `Role exploration error: ${error instanceof Error ? error.message : String(error)}`);
   } finally {
     await browserContext.close().catch(() => undefined);
@@ -254,7 +260,7 @@ async function enterModuleScope(
   }
 
   await noteSkippedUrl(ctx, actor, currentUrl);
-  await page.goto(ctx.scope.startUrl, { waitUntil: "domcontentloaded" }).catch(() => undefined);
+  await returnTo(page, ctx.scope.startUrl);
   return false;
 }
 
@@ -402,7 +408,7 @@ async function explorePage(
       // run returns to the module start path and keeps exploring the module.
       if (!isInScope(ctx.scope, page.url())) {
         await noteSkippedUrl(ctx, actor, page.url());
-        await page.goto(ctx.scope.startUrl, { waitUntil: "domcontentloaded" }).catch(() => undefined);
+        await returnTo(page, ctx.scope.startUrl);
         continue;
       }
 
@@ -599,8 +605,9 @@ export async function executeOne(
     } else {
       // CLICK / SUBMIT / NAVIGATE
       await locator.click();
-      if (chosen.operation === "NAVIGATE") {
+      if (chosen.operation === "NAVIGATE" || chosen.operation === "SUBMIT") {
         await page.waitForLoadState("domcontentloaded").catch(() => undefined);
+        await settlePage(page);
       }
     }
 

@@ -30,46 +30,60 @@ const PASSWORD_SELECTOR = [
   'input[aria-label*="password" i]',
 ].join(", ");
 
-const SUBMIT_SELECTOR = [
-  'button[type="submit"]',
-  'input[type="submit"]',
-  'button[name*="submit" i]',
-  'button[id*="submit" i]',
-  'form button',
-  '[role="button"]',
-].join(", ");
+/**
+ * Tried in order; a CSS union would return DOM order instead, so a header
+ * `[role="button"]` or menu toggle would win over the form's real submit.
+ */
+const SUBMIT_TIERS = [
+  'form button[type="submit"], form input[type="submit"]',
+  'button[type="submit"], input[type="submit"]',
+  'button[name*="submit" i], button[id*="submit" i]',
+  'form button:not([type="button"]):not([type="reset"])',
+  'form button, [role="button"]',
+];
 
-const TEXT_SELECTOR = 'input[type="text"], input[type="search"], input[type="tel"], input[type="number"], input:not([type]), textarea';
+const TEXT_INPUT_TYPES = ["text", "search", "tel", "number", "url", "date", "datetime-local", "time", "month", "week", "range", "color"];
+const TEXT_SELECTOR = [...TEXT_INPUT_TYPES.map((type) => `input[type="${type}"]`), "input:not([type])", "textarea", '[role="textbox"]', '[contenteditable="true"]'].join(", ");
+const SELECT_SELECTOR = 'select, [role="combobox"], [role="listbox"]';
+const CHECKBOX_SELECTOR = 'input[type="checkbox"], [role="checkbox"], [role="switch"]';
+const RADIO_SELECTOR = 'input[type="radio"], [role="radio"]';
 
-function selectorFor(hint: string): { selector: string; ordinal: number } | null {
-  const [rawRole, rawOrdinal] = hint.split(":");
-  const ordinal = Number.parseInt(rawOrdinal ?? "0", 10) || 0;
-  switch (rawRole) {
+interface ParsedHint {
+  /** Selector tiers, most specific first; the first tier with a visible match wins. */
+  tiers: string[];
+  /** 0-based index among visible matches of the winning tier. */
+  ordinal: number;
+}
+
+function selectorFor(hint: string): ParsedHint | null {
+  const [kind, role, rawOrdinal] = hint.split(":");
+  switch (kind) {
     case "role":
-      return { selector: selectorForRole(hint.split(":")[1] ?? ""), ordinal };
+      return { tiers: tiersForRole(role ?? ""), ordinal: Number.parseInt(rawOrdinal ?? "0", 10) || 0 };
     case "selector":
-      return { selector: hint.slice("selector:".length), ordinal };
+      return { tiers: [hint.slice("selector:".length)], ordinal: 0 };
     default:
       return null;
   }
 }
 
-function selectorForRole(role: string): string {
+function tiersForRole(role: string): string[] {
   switch (role) {
     case "email":
-      return EMAIL_SELECTOR;
+      return [EMAIL_SELECTOR];
     case "password":
-      return PASSWORD_SELECTOR;
+      return [PASSWORD_SELECTOR];
     case "submit":
     case "button":
-      return SUBMIT_SELECTOR;
-    case "text":
+      return SUBMIT_TIERS;
     case "select":
+      return [SELECT_SELECTOR];
     case "checkbox":
+      return [CHECKBOX_SELECTOR];
     case "radio":
-      return TEXT_SELECTOR;
+      return [RADIO_SELECTOR];
     default:
-      return TEXT_SELECTOR;
+      return [TEXT_SELECTOR];
   }
 }
 
@@ -134,7 +148,7 @@ export function allMatches(page: Page, hint: string): Locator | null {
   const label = labelOf(hint);
   if (label !== null) return page.getByLabel(label);
   const parsed = selectorFor(hint);
-  return parsed ? page.locator(parsed.selector) : null;
+  return parsed ? page.locator(parsed.tiers.join(", ")) : null;
 }
 
 /** Returns the first visible match for a locator hint, or null when absent. */
@@ -146,8 +160,14 @@ export async function resolveLocator(page: Page, hint: string): Promise<Locator 
 
   const parsed = selectorFor(hint);
   if (!parsed) return null;
+  for (const tier of parsed.tiers) {
+    const found = await nthVisible(page.locator(tier), parsed.ordinal);
+    if (found) return found;
+  }
+  return null;
+}
 
-  const candidates = page.locator(parsed.selector);
+async function nthVisible(candidates: Locator, ordinal: number): Promise<Locator | null> {
   const count = await candidates.count().catch(() => 0);
   const visibleIndexes: number[] = [];
   for (let index = 0; index < count; index += 1) {
@@ -159,7 +179,7 @@ export async function resolveLocator(page: Page, hint: string): Promise<Locator 
 
   // The ordinal counts visible matches, so a hidden duplicate earlier in the
   // DOM does not shift the target out of range.
-  const wanted = Math.min(parsed.ordinal, visibleIndexes.length - 1);
+  const wanted = Math.min(ordinal, visibleIndexes.length - 1);
   const target = visibleIndexes[wanted] ?? visibleIndexes[0];
   if (target === undefined) return null;
   return candidates.nth(target);
@@ -216,7 +236,7 @@ export async function waitForTarget(page: Page, hint: string, resolver: Semantic
 
   const parsed = selectorFor(hint);
   if (!parsed) throw new TargetNotFoundError(`Unrecognised locator hint: ${hint}`, hint);
-  const fallback = page.locator(parsed.selector).first();
+  const fallback = page.locator(parsed.tiers.join(", ")).first();
   try {
     await fallback.waitFor({ state: "visible", timeout: LOCATOR_TIMEOUT_MS });
   } catch {

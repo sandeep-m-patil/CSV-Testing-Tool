@@ -1,4 +1,5 @@
 import { EMAIL_HINTS, PASSWORD_HINTS, SUBMIT_HINTS } from "./scenario-data";
+import { elementHint } from "./element-hint";
 
 /**
  * Classifies a discovered page's controls into semantic roles. Roles become the
@@ -26,6 +27,10 @@ export interface ClassifiedField {
   /** 0-based position among fields sharing the same role. */
   ordinal: number;
   label: string;
+  /** HTML input type, lower-cased, when the control is an `<input>`. */
+  inputType: string | null;
+  /** Hint for this exact control; falls back to the positional role hint. */
+  hint: string;
 }
 
 function haystack(control: DiscoveredControl): string {
@@ -39,20 +44,26 @@ function matches(hay: string, hints: string[]): boolean {
   return hints.some((hint) => hay.includes(hint));
 }
 
+/** Inputs whose name/label may decide they hold a credential; a date or number field never does. */
+const TEXT_LIKE_INPUT_TYPES = new Set(["text", "search", ""]);
+
 function classifyControl(control: DiscoveredControl): FieldRole {
   const type = control.elementType.toLowerCase();
+  const inputType = control.inputType?.toLowerCase();
   if (type === "select") return "select";
-  if (type === "checkbox") return "checkbox";
-  if (type === "radio") return "radio";
-  if (type === "button" || type === "a" || type === "link") {
-    return matches(haystack(control), SUBMIT_HINTS) ? "submit" : "button";
-  }
-  if (type === "input" || type === "textarea") {
+  if (type === "checkbox" || inputType === "checkbox") return "checkbox";
+  if (type === "radio" || inputType === "radio") return "radio";
+  // The browser's own type is authoritative; names and labels are only a guess.
+  if (inputType === "password") return "password";
+  if (inputType === "email") return "email";
+  // A link never submits a form; a header "Log in" link must not become one.
+  if (type === "a" || type === "link") return "button";
+  if (type === "button") return matches(haystack(control), SUBMIT_HINTS) ? "submit" : "button";
+  if (type === "input" && !TEXT_LIKE_INPUT_TYPES.has(inputType ?? "text")) return "text";
+  if (type === "input" || type === "textarea" || type === "textbox") {
     const hay = haystack(control);
     if (matches(hay, PASSWORD_HINTS)) return "password";
     if (matches(hay, EMAIL_HINTS)) return "email";
-    if (type === "textarea") return "text";
-    return "text";
   }
   return "text";
 }
@@ -70,10 +81,13 @@ export function classifyFields(controls: DiscoveredControl[]): ClassifiedField[]
     const role = classifyControl(control);
     const ordinal = counters.get(role) ?? 0;
     counters.set(role, ordinal + 1);
+    const positional = ordinal > 0 ? `role:${role}:${ordinal}` : `role:${role}`;
     out.push({
       role,
       ordinal,
       label: labelFor(control, `${role} ${ordinal + 1}`),
+      inputType: control.inputType?.toLowerCase() ?? null,
+      hint: elementHint(control) ?? positional,
     });
   }
   return out;
