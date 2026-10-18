@@ -1,4 +1,4 @@
-# Autotest SaaS — Autonomous Web Application Testing Platform
+# AutoTestCSV — Autonomous Website Intelligence and Testing Platform
 
 Point it at a web app. It drives a real Chromium browser, discovers the app's
 pages, forms and actions on its own, generates a full manual-style test matrix

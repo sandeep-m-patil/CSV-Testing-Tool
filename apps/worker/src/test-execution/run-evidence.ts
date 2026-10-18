@@ -30,6 +30,11 @@ export function evidenceKey(target: EvidenceTarget, subject: EvidenceSubject, la
   return `modules/${target.moduleId}/runs/${target.runId}/${slugify(subject.caseName)}${row}-a${subject.attempt}-${label}.png`;
 }
 
+/** Where the trace of one attempt is kept, next to its screenshots. */
+export function traceKey(target: EvidenceTarget, subject: EvidenceSubject): string {
+  return evidenceKey(target, subject, "trace").replace(/\.png$/, ".zip");
+}
+
 /** Returns the stored key, or null when capture failed (logged, never silent). */
 export async function captureScreenshot(target: EvidenceTarget, page: Page, key: string): Promise<string | null> {
   try {

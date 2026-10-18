@@ -2,6 +2,7 @@ import { desc, eq, and, like, type SQL } from "drizzle-orm";
 import { projects } from "@repo/db/schema";
 import { CreateProjectInputSchema } from "@repo/schemas";
 import { AppError, safeUrlError } from "@repo/core";
+import { withAuthorizedHost } from "@repo/schemas";
 import { created, ok, parseBody, route } from "@/lib/api";
 import { assertSameOrigin } from "@/lib/csrf";
 import { requireSession } from "@/lib/auth/get-session";
@@ -52,6 +53,10 @@ export const POST = route(async (request) => {
       baseUrl: input.baseUrl,
       environment: input.environment,
       productionConfirmed: input.productionConfirmed,
+      // The create schema only accepts `authorizationConfirmed: true`.
+      authorizationConfirmedAt: new Date(),
+      authorizationConfirmedBy: session.userId,
+      authorizedHosts: withAuthorizedHost([], input.baseUrl),
       createdBy: session.userId,
     })
     .returning();

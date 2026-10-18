@@ -26,9 +26,16 @@ export type StartTestRunInput = z.infer<typeof StartTestRunInputSchema>;
  * could not be executed as written (target not found, navigation failed,
  * missing credential or data), which is a different problem from the app
  * misbehaving. SKIP means nothing machine-checkable was asserted.
+ * INFRA_ERROR means the test platform itself failed (the browser crashed or
+ * a context could not open): neither the app nor the case is at fault.
+ * FLAKY means the final attempt passed after an earlier attempt did not, so
+ * the pass is reported but not trusted as a clean one.
  */
-export const RESULT_STATUSES = ["PASS", "FAIL", "BLOCKED", "SKIP"] as const;
+export const RESULT_STATUSES = ["PASS", "FAIL", "BLOCKED", "SKIP", "INFRA_ERROR", "FLAKY"] as const;
 export type ResultStatus = (typeof RESULT_STATUSES)[number];
+
+/** Results "Rerun failed" picks up: anything that did not end in a pass or a deliberate skip. */
+export const RERUNNABLE_STATUSES: readonly ResultStatus[] = ["FAIL", "BLOCKED", "INFRA_ERROR"];
 
 export const StepResultSchema = z.object({
   order: z.number().int(),
@@ -51,6 +58,7 @@ export const AttemptRecordSchema = z.object({
   error: z.string().nullable(),
   durationMs: z.number().int(),
   screenshotKey: z.string().nullable(),
+  traceKey: z.string().nullable().optional(),
 });
 export type AttemptRecord = z.infer<typeof AttemptRecordSchema>;
 

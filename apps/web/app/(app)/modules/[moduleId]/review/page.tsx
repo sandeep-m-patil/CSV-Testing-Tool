@@ -14,6 +14,7 @@ import { RunTestsButton } from "@/features/test-runs/run-tests-button";
 import { ApproveAllDraftsButton } from "@/features/test-cases/case-review-actions";
 import { TestCaseList } from "@/features/test-cases/test-case-list";
 import { WorkflowList } from "@/features/test-cases/workflow-list";
+import { TestCaseToolbar } from "@/features/test-cases/test-case-toolbar";
 
 export default function ModuleReviewPage() {
   const params = useParams<{ moduleId: string }>();
@@ -59,8 +60,9 @@ export default function ModuleReviewPage() {
       {!hasResult && (
         <EmptyState
           icon={<ListChecks />}
-          title="Nothing generated yet"
-          description="Run discovery to generate workflows and candidate test cases."
+          title="No test cases yet"
+          description="Run discovery to generate cases, write one by hand, or import a CSV."
+          action={<TestCaseToolbar moduleId={moduleId} moduleName={module.name} caseCount={0} />}
         />
       )}
 
@@ -80,6 +82,7 @@ export default function ModuleReviewPage() {
             <WorkflowList workflows={workflows ?? []} loading={workflowsLoading} />
           </TabsContent>
           <TabsContent value="tests" className="mt-4 space-y-4">
+            <TestCaseToolbar moduleId={moduleId} moduleName={module.name} caseCount={testCases?.length ?? 0} />
             {(testCases?.length ?? 0) > 0 && (
               <RunPolicyBar moduleId={moduleId} testCases={testCases!} requireApproval={module.requireApproval} />
             )}
@@ -91,9 +94,11 @@ export default function ModuleReviewPage() {
   );
 }
 
-/** Mirrors the executor's gate: rejected never runs; with approval required, only reviewed cases do. */
+const NEVER_RUN = new Set(["REJECTED", "NEEDS_REVIEW"]);
+
+/** Mirrors the executor's gate: rejected and needs-review never run; with approval required, only reviewed cases do. */
 function runnableCount(testCases: TestCaseRecord[], requireApproval: boolean): number {
-  return testCases.filter((test) => test.status !== "REJECTED" && (!requireApproval || test.status === "APPROVED" || test.status === "READY")).length;
+  return testCases.filter((test) => !NEVER_RUN.has(test.status) && (!requireApproval || test.status === "APPROVED" || test.status === "READY")).length;
 }
 
 interface RunPolicyBarProps {
@@ -109,7 +114,7 @@ function RunPolicyBar({ moduleId, testCases, requireApproval }: RunPolicyBarProp
       <p className="text-muted-foreground">
         <span className="font-semibold tabular-nums text-foreground">{runnable}</span> of{" "}
         <span className="tabular-nums">{testCases.length}</span> case{testCases.length === 1 ? "" : "s"} will run
-        {requireApproval ? " (approval required)" : " (rejected cases are skipped)"}
+        {requireApproval ? " (approval required)" : " (rejected and needs-review cases are skipped)"}
       </p>
       <div className="flex flex-wrap items-center gap-3">
         <ApproveAllDraftsButton moduleId={moduleId} draftCount={testCases.filter((test) => test.status === "DRAFT").length} />

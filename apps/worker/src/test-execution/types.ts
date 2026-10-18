@@ -5,55 +5,9 @@
  * re-run in another environment.
  */
 
-export const STEP_ACTIONS = [
-  "GOTO",
-  "FILL",
-  "CLICK",
-  "SELECT",
-  "CHECK",
-  "UNCHECK",
-  "SUBMIT",
-  "PRESS",
-  "HOVER",
-  "UPLOAD",
-  /** A plain-language goal completed by the AI browser agent; the goal text is the target. */
-  "GOAL",
-  "WAIT",
-  "VERIFY",
-] as const;
-export type StepAction = (typeof STEP_ACTIONS)[number];
-
-/** Machine-checkable outcomes. Anything unverifiable is emitted as `manual`. */
-export type Expectation =
-  | { kind: "navigated_away"; fromUrl: string }
-  | { kind: "stayed_on_page"; fromUrl: string }
-  | { kind: "error_message_present" }
-  | { kind: "input_attribute"; target: string; attribute: string; equals: string }
-  | { kind: "app_responsive" }
-  | { kind: "url_contains"; value: string }
-  | { kind: "text_present"; value: string }
-  | { kind: "element_visible"; target: string }
-  | { kind: "element_hidden"; target: string }
-  | { kind: "element_enabled"; target: string }
-  | { kind: "element_disabled"; target: string }
-  | { kind: "url_equals"; value: string }
-  | { kind: "text_equals"; target: string; value: string }
-  | { kind: "text_contains"; target: string; value: string }
-  | { kind: "value_equals"; target: string; value: string }
-  | { kind: "element_count"; target: string; equals: number }
-  | { kind: "title_equals"; value: string }
-  | { kind: "title_contains"; value: string }
-  | { kind: "any_of"; options: Expectation[] }
-  | { kind: "all_of"; options: Expectation[] };
-
-export interface ExecutableStep {
-  order: number;
-  action: StepAction;
-  target: string;
-  value?: string;
-  stepType: "action" | "verify";
-  expect?: Expectation;
-}
+// The step model is shared with the web app (editor, CSV import) through @repo/schemas.
+export { STEP_ACTIONS, type StepAction, type Expectation, type ExecutableStep } from "@repo/schemas";
+import type { ExecutableStep } from "@repo/schemas";
 
 export interface GeneratedCase {
   name: string;

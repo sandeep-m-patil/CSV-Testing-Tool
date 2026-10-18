@@ -1,10 +1,12 @@
-import { FileCode2, Sparkles } from "lucide-react";
+import { FileCode2, Pencil, Sparkles } from "lucide-react";
+import { Button } from "@/components/ui/button";
 import type { TestCaseRecord } from "@/features/hooks";
 import { Badge } from "@/components/ui/badge";
 import { EmptyState } from "@/components/ui/empty-state";
 import { Skeleton } from "@/components/ui/skeleton";
 import { CaseReviewActions } from "./case-review-actions";
 import { StepList } from "./step-list";
+import { TestCaseEditor } from "./test-case-editor";
 
 function priorityVariant(priority: string): "destructive" | "warning" | "muted" {
   if (priority === "CRITICAL" || priority === "HIGH") return "destructive";
@@ -38,7 +40,11 @@ export function TestCaseList({ moduleId, testCases, loading }: TestCaseListProps
               <div className="flex flex-wrap items-center gap-1.5">
                 <Badge variant={priorityVariant(test.priority)}>{test.priority.toLowerCase()} priority</Badge>
                 <Badge variant="muted">{test.type}</Badge>
+                {test.severity && <Badge variant={priorityVariant(test.severity)}>{test.severity.toLowerCase()} severity</Badge>}
                 {test.role && <Badge variant="info">{test.role}</Badge>}
+                {test.tags.map((tag) => (
+                  <Badge key={tag} variant="muted">#{tag}</Badge>
+                ))}
                 {test.source === "ai" && (
                   <Badge variant="brand">
                     <Sparkles aria-hidden="true" />
@@ -47,7 +53,18 @@ export function TestCaseList({ moduleId, testCases, loading }: TestCaseListProps
                 )}
               </div>
             </div>
-            <CaseReviewActions moduleId={moduleId} testId={test.id} status={test.status} />
+            <div className="flex shrink-0 items-center gap-2">
+              <TestCaseEditor
+                moduleId={moduleId}
+                testCase={test}
+                trigger={
+                  <Button variant="ghost" size="iconSm" aria-label={`Edit ${test.code}`} title="Edit">
+                    <Pencil className="h-4 w-4" />
+                  </Button>
+                }
+              />
+              <CaseReviewActions moduleId={moduleId} testId={test.id} status={test.status} />
+            </div>
           </div>
           {test.description && <p className="mt-3 text-sm text-muted-foreground">{test.description}</p>}
           {test.precondition && (

@@ -15,6 +15,8 @@ const CONTENT_TYPES: Record<string, string> = {
   csv: "text/csv",
   log: "text/plain; charset=utf-8",
   txt: "text/plain; charset=utf-8",
+  // Playwright traces; served as a download for `npx playwright show-trace`.
+  zip: "application/zip",
 };
 
 /** Serves run and discovery evidence to signed-in owners of the module it belongs to. */

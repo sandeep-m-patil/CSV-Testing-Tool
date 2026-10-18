@@ -1,3 +1,4 @@
+import { nextCaseCode } from "@repo/schemas";
 import { and, eq } from "drizzle-orm";
 import type { Db } from "@repo/db";
 import type { DetectedAction } from "@repo/browser";
@@ -477,43 +478,27 @@ export class DiscoveryStore {
     );
   }
 
-  private moduleSlug: string | null = null;
+  private moduleName: string | null = null;
 
-  /** Uppercase alphanumeric prefix derived from the module name, e.g. "Material Approval" -> "MATERIAL-APPR". */
-  private async resolveModuleSlug(): Promise<string> {
-    if (this.moduleSlug) return this.moduleSlug;
+  /** The module's name, from which case codes are derived ("Material Approval" -> "MATERIAL-APPR-TC-001"). */
+  private async resolveModuleName(): Promise<string> {
+    if (this.moduleName !== null) return this.moduleName;
     const [row] = await this.db
       .select({ name: modules.name })
       .from(modules)
       .where(eq(modules.id, this.scope.moduleId))
       .limit(1);
-    const slug = (row?.name ?? "")
-      .normalize("NFKD")
-      .replace(/[^a-zA-Z0-9]+/g, "-")
-      .replace(/^-+|-+$/g, "")
-      .toUpperCase()
-      .slice(0, 12);
-    this.moduleSlug = slug.length > 0 ? slug : "MOD";
-    return this.moduleSlug;
+    this.moduleName = row?.name ?? "";
+    return this.moduleName;
   }
 
   /** Next stable per-module code, e.g. "LOGIN-TC-024". Never reuses a code, so results stay traceable. */
   private async nextTestCaseCode(): Promise<string> {
-    const slug = await this.resolveModuleSlug();
     const rows = await this.db
       .select({ code: testCases.code })
       .from(testCases)
       .where(eq(testCases.moduleId, this.scope.moduleId));
-    const suffix = new RegExp(`^${slug}-TC-(\\d+)$`);
-    let max = 0;
-    for (const row of rows) {
-      if (!row.code) continue;
-      const match = suffix.exec(row.code);
-      if (!match) continue;
-      const value = Number.parseInt(match[1]!, 10);
-      if (Number.isFinite(value) && value > max) max = value;
-    }
-    return `${slug}-TC-${String(max + 1).padStart(3, "0")}`;
+    return nextCaseCode(await this.resolveModuleName(), rows.map((row) => row.code));
   }
 
   async countSessionsForModule(): Promise<number> {

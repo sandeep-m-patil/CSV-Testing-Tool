@@ -3,6 +3,7 @@ import { discoverySessions, modules, projects } from "@repo/db/schema";
 import { enqueueJob } from "@repo/db";
 import { AppError, DISCOVERY_ATTEMPTS, DISCOVERY_BACKOFF, DISCOVERY_JOB_NAME, DISCOVERY_QUEUE } from "@repo/core";
 import { db } from "@/lib/db";
+import { assertTestingAuthorized } from "@/lib/test-authorization";
 
 export const DEFAULT_MODULE_NAME = "Whole site";
 
@@ -35,6 +36,7 @@ export async function enqueueDiscovery(input: {
       403,
     );
   }
+  assertTestingAuthorized(project, project.baseUrl);
 
   const [sessionRow] = await db
     .insert(discoverySessions)

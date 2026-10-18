@@ -15,6 +15,11 @@ export const projects = pgTable(
     baseUrl: text("base_url").notNull(),
     environment: varchar("environment", { length: 24 }).notNull().default("development"),
     productionConfirmed: boolean("production_confirmed").notNull().default(false),
+    /** When a user confirmed they may test this site; null blocks discovery and runs. */
+    authorizationConfirmedAt: timestamp("authorization_confirmed_at", { withTimezone: true }),
+    authorizationConfirmedBy: uuid("authorization_confirmed_by").references(() => users.id, { onDelete: "set null" }),
+    /** Sites (host[:port], `www.` ignored) the confirmation covers. */
+    authorizedHosts: jsonb("authorized_hosts").$type<string[]>().notNull().default(sql`'[]'::jsonb`),
     createdBy: uuid("created_by")
       .notNull()
       .references(() => users.id, { onDelete: "cascade" }),

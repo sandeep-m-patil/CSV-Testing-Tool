@@ -25,6 +25,7 @@ import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/input";
+import { AuthorizationCheckbox } from "./authorization-checkbox";
 
 const ENVIRONMENTS: CreateProjectInput["environment"][] = [
   "development",
@@ -34,11 +35,14 @@ const ENVIRONMENTS: CreateProjectInput["environment"][] = [
   "custom",
 ];
 
+/** Form state: the attestation starts unticked, which the schema only accepts as `true`. */
+type ProjectFormValues = Omit<CreateProjectInput, "authorizationConfirmed"> & { authorizationConfirmed: boolean };
+
 export function CreateProjectButton() {
   const [open, setOpen] = useState(false);
   const [submitting, setSubmitting] = useState(false);
-  const EMPTY = { name: "", baseUrl: "", description: "", environment: "development", productionConfirmed: false } as const;
-  const [values, setValues] = useState<CreateProjectInput>({ ...EMPTY });
+  const EMPTY = { name: "", baseUrl: "", description: "", environment: "development", productionConfirmed: false, authorizationConfirmed: false } as const;
+  const [values, setValues] = useState<ProjectFormValues>({ ...EMPTY });
   const router = useRouter();
   const queryClient = useQueryClient();
 
@@ -147,6 +151,11 @@ export function CreateProjectButton() {
               </span>
             </label>
           )}
+          <AuthorizationCheckbox
+            url={values.baseUrl}
+            checked={values.authorizationConfirmed}
+            onChange={(checked) => setValues((prev) => ({ ...prev, authorizationConfirmed: checked }))}
+          />
           <div className="space-y-2">
             <Label htmlFor="project-description">
               Description <span className="font-normal text-muted-foreground">(optional)</span>
@@ -162,7 +171,7 @@ export function CreateProjectButton() {
             <Button type="button" variant="outline" onClick={() => setOpen(false)}>
               Cancel
             </Button>
-            <Button type="submit" disabled={submitting}>
+            <Button type="submit" disabled={submitting || !values.authorizationConfirmed}>
               {submitting ? "Creating…" : "Create project"}
             </Button>
           </DialogFooter>

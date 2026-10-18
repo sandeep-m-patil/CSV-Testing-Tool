@@ -11,6 +11,8 @@ export const ProjectSchema = z.object({
   baseUrl: z.string().url(),
   environment: ProjectEnvironmentSchema,
   productionConfirmed: z.boolean().default(false),
+  authorizationConfirmedAt: z.string().datetime().nullable().optional(),
+  authorizedHosts: z.array(z.string()).optional(),
   createdBy: z.string().uuid(),
   createdAt: z.string().datetime(),
   updatedAt: z.string().datetime(),
@@ -30,6 +32,12 @@ const projectInputFields = {
 
 export const CreateProjectInputSchema = z
   .object(projectInputFields)
+  .extend({
+    /** The user's attestation that they are permitted to test the site at `baseUrl`. */
+    authorizationConfirmed: z.literal(true, {
+      errorMap: () => ({ message: "Confirm that you are authorized to test this website" }),
+    }),
+  })
   .refine((value) => value.environment !== "production" || value.productionConfirmed, {
     message: "Production environment requires explicit confirmation",
     path: ["productionConfirmed"],
@@ -45,3 +53,9 @@ export const ProjectListQuerySchema = PaginationQuerySchema.extend({
   search: z.string().trim().max(120).optional(),
 });
 export type ProjectListQuery = z.infer<typeof ProjectListQuerySchema>;
+
+/** Body of POST /projects/:id/authorization; `url` picks one of the project's environments. */
+export const ConfirmTestAuthorizationInputSchema = z.object({
+  url: z.string().trim().url().optional(),
+});
+export type ConfirmTestAuthorizationInput = z.infer<typeof ConfirmTestAuthorizationInputSchema>;

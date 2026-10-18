@@ -4,7 +4,7 @@ import { Providers } from "@/lib/providers";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "Autotest — Autonomous Web Testing Platform",
+  title: "AutoTestCSV — Autonomous Website Intelligence and Testing",
   description: "Discover applications, build workflows, and generate test cases autonomously.",
 };
 

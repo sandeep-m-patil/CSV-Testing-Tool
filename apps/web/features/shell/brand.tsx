@@ -19,7 +19,7 @@ export function Brand({ compact = false, onNavigate }: { compact?: boolean; onNa
         <FlaskConical className="h-4 w-4" aria-hidden="true" />
       </span>
       <span className="min-w-0 leading-tight">
-        <span className="block truncate text-sm font-semibold tracking-tight">Autotest</span>
+        <span className="block truncate text-sm font-semibold tracking-tight">AutoTestCSV</span>
         {compact ? null : (
           <span className="block truncate text-[11px] text-muted-foreground">Discovery &amp; test generation</span>
         )}

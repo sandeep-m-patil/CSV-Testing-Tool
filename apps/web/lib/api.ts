@@ -22,7 +22,7 @@ export async function handleError(error: unknown): Promise<NextResponse> {
   if (isAppError(error)) {
     const code = error.status === 401 ? "UNAUTHORIZED" : error.code;
     return NextResponse.json(
-      { data: null, error: { code, message: error.message } },
+      { data: null, error: { code, message: error.message, ...(error.details !== undefined ? { details: error.details } : {}) } },
       { status: error.status },
     );
   }

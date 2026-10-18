@@ -5,7 +5,7 @@ type Tone = "success" | "warning" | "destructive" | "info" | "muted";
 
 const SUCCESS = new Set(["DISCOVERED", "COMPLETED", "PASSED", "APPROVED", "READY", "EXECUTED", "ACTIVE", "SUCCESS", "DONE"]);
 const WARNING = new Set(["DISCOVERING", "RUNNING", "QUEUED", "PENDING", "DRAFT"]);
-const DANGER = new Set(["FAILED", "CANCELLED", "REJECTED", "BLOCKED", "ERROR"]);
+const DANGER = new Set(["FAILED", "CANCELLED", "REJECTED", "BLOCKED", "ERROR", "INFRA_ERROR"]);
 const LIVE = new Set(["DISCOVERING", "RUNNING", "QUEUED"]);
 
 const DOT_CLASS: Record<Tone, string> = {

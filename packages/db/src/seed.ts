@@ -2,6 +2,7 @@ import "dotenv/config";
 import { eq } from "drizzle-orm";
 import { getDb, closeAll } from "./index";
 import { credentials, moduleCredentials, modules, projectRoles, projects, testDataSets, users } from "./schema/index";
+import { withAuthorizedHost } from "@repo/schemas";
 
 const db = getDb();
 
@@ -29,14 +30,19 @@ async function seed(): Promise<void> {
         .returning()
     )[0];
 
+  const demoUrl = process.env.DEMO_APP_URL ?? "http://localhost:4000";
   const [project] = await db
     .insert(projects)
     .values({
       name: "Pharma LIMS",
       description: "Laboratory information management system — QA/QT demo environment.",
-      baseUrl: process.env.DEMO_APP_URL ?? "http://localhost:4000",
+      baseUrl: demoUrl,
       environment: "qa",
       productionConfirmed: false,
+      // The bundled demo app is the operator's own local target.
+      authorizationConfirmedAt: new Date(),
+      authorizationConfirmedBy: user!.id,
+      authorizedHosts: withAuthorizedHost([], demoUrl),
       createdBy: user!.id,
     })
     .returning();

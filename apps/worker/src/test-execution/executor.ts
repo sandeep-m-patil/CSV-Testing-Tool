@@ -1,9 +1,11 @@
 import type { Browser, Page } from "playwright";
+import { AttemptDiagnostics } from "./attempt-diagnostics";
+import { isInfrastructureError } from "./step-errors";
 import type { StepResult } from "@repo/schemas";
 import type { ExecutableStep, Expectation, ResultStatus } from "./types";
 import { evaluateExpectation } from "./assertions";
 import { describeExpectation } from "./describe-expectation";
-import { captureScreenshot, displayValue, evidenceKey, type EvidenceTarget } from "./run-evidence";
+import { captureScreenshot, displayValue, evidenceKey, traceKey, type EvidenceSubject, type EvidenceTarget } from "./run-evidence";
 import { firstLine, isBlockingError, NAVIGATION_TIMEOUT_MS, runStepWithRecovery, type RunCredential, type StepContext } from "./step-runner";
 import type { SemanticResolver } from "./semantic-target";
 import type { PageAgent } from "../browser-agent/agent";
@@ -40,6 +42,10 @@ export interface AttemptOutcome {
   error: string | null;
   screenshotKey: string | null;
   steps: StepResult[];
+  /** Playwright trace of a non-passing, credential-free attempt. */
+  traceKey: string | null;
+  /** Console and uncaught page errors seen during the attempt, secrets masked. */
+  consoleErrors: string[];
 }
 
 /**
@@ -56,17 +62,24 @@ const NEGATIVE_SETTLE_MS = 3_000;
 export async function executeAttempt(ctx: RunContext, testCase: ExecutableCase, attempt: number): Promise<AttemptOutcome> {
   const startedAt = Date.now();
   const context = await ctx.browser.newContext({ ignoreHTTPSErrors: true, ...(testCase.storageState ? { storageState: testCase.storageState } : {}) });
-  const page = await context.newPage();
-  page.setDefaultTimeout(NAVIGATION_TIMEOUT_MS);
-  const recorder = new StepRecorder(ctx, page, { caseName: testCase.name, datasetRow: testCase.datasetRow, attempt });
-
+  const subject: EvidenceSubject = { caseName: testCase.name, datasetRow: testCase.datasetRow, attempt };
+  // Signed-in attempts are never traced: a trace would hold the password and session cookie.
+  const diagnostics = new AttemptDiagnostics(ctx, context, !ctx.credential && !testCase.storageState);
   try {
-    const failure = await runActionSteps(page, testCase.steps, ctx, recorder);
-    if (failure) return recorder.outcome(startedAt, failure);
-    return await verify(page, testCase.steps, recorder, startedAt);
+    const page = await context.newPage();
+    page.setDefaultTimeout(NAVIGATION_TIMEOUT_MS);
+    await diagnostics.start(page);
+    const outcome = await runAttempt(page, ctx, testCase, new StepRecorder(ctx, page, subject), startedAt);
+    return { ...outcome, ...(await diagnostics.finish(outcome.status, traceKey(ctx, subject))) };
   } finally {
     await context.close().catch(() => undefined);
   }
+}
+
+async function runAttempt(page: Page, ctx: RunContext, testCase: ExecutableCase, recorder: StepRecorder, startedAt: number): Promise<AttemptOutcome> {
+  const failure = await runActionSteps(page, testCase.steps, ctx, recorder);
+  if (failure) return recorder.outcome(startedAt, failure);
+  return verify(page, testCase.steps, recorder, startedAt);
 }
 
 interface Verdict {
@@ -85,7 +98,7 @@ async function runActionSteps(page: Page, steps: ExecutableStep[], ctx: RunConte
       const resolvedBy = await runStepWithRecovery(page, step, stepContext);
       await recorder.record(step, { status: "PASS", started, resolvedBy });
     } catch (error) {
-      const status: ResultStatus = isBlockingError(error) ? "BLOCKED" : "FAIL";
+      const status: ResultStatus = isInfrastructureError(error) ? "INFRA_ERROR" : isBlockingError(error) ? "BLOCKED" : "FAIL";
       const message = `Step ${step.order} (${step.action} ${step.target}): ${firstLine(error)}`;
       await recorder.record(step, { status, started, error: firstLine(error) });
       return { status, actual: status === "BLOCKED" ? "Step could not be executed" : "Execution error", error: message };
@@ -166,6 +179,8 @@ class StepRecorder {
       error: verdict.error,
       screenshotKey: this.lastScreenshot,
       steps: this.steps,
+      traceKey: null,
+      consoleErrors: [],
     };
   }
 }

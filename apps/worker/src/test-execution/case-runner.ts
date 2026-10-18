@@ -2,12 +2,12 @@ import type { AttemptRecord } from "@repo/schemas";
 import { executeAttempt, type AttemptOutcome, type ExecutableCase, type RunContext } from "./executor";
 
 /**
- * Retries a FAIL or BLOCKED case up to `retries` more times. Every attempt is
- * kept: the report shows "attempt 1 FAIL, attempt 2 PASS" rather than hiding a
- * flaky case behind its last result.
+ * Retries a FAIL, BLOCKED or INFRA_ERROR case up to `retries` more times. Every
+ * attempt is kept, and a case that passes only after an earlier attempt did not
+ * is reported as FLAKY, never as a clean PASS.
  */
 
-const RETRYABLE = new Set(["FAIL", "BLOCKED"]);
+const RETRYABLE: ReadonlySet<string> = new Set(["FAIL", "BLOCKED", "INFRA_ERROR"]);
 
 export interface CaseResult {
   /** The final attempt: its status is the case's status. */
@@ -26,20 +26,24 @@ export async function runCaseWithRetries(ctx: RunContext, testCase: ExecutableCa
       error: outcome.error,
       durationMs: outcome.durationMs,
       screenshotKey: outcome.screenshotKey,
+      traceKey: outcome.traceKey,
     });
     if (!RETRYABLE.has(outcome.status)) break;
   }
-  return { outcome: outcome!, attempts };
+  const isFlaky = outcome!.status === "PASS" && attempts.length > 1;
+  return { outcome: isFlaky ? { ...outcome!, status: "FLAKY" } : outcome!, attempts };
 }
 
-/** A browser-level crash (context could not open) is one failed attempt, not a dead run. */
+/** A browser-level crash (context could not open) is a platform failure in one attempt, not a dead run. */
 function crashOutcome(error: unknown): AttemptOutcome {
   return {
-    status: "BLOCKED",
+    status: "INFRA_ERROR",
     durationMs: 0,
-    actualResult: "Browser context could not be created",
+    actualResult: "The test browser failed before the case could run",
     error: error instanceof Error ? error.message : String(error),
     screenshotKey: null,
     steps: [],
+    traceKey: null,
+    consoleErrors: [],
   };
 }

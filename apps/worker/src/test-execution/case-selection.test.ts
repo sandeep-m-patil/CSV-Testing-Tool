@@ -12,6 +12,10 @@ describe("isRunnable", () => {
     expect(isRunnable("REJECTED", true)).toBe(false);
   });
 
+  it("never runs a case that still needs an expected outcome", () => {
+    expect(isRunnable("NEEDS_REVIEW", false)).toBe(false);
+  });
+
   it("runs drafts unless the module requires approval", () => {
     expect(isRunnable("DRAFT", false)).toBe(true);
     expect(isRunnable("DRAFT", true)).toBe(false);

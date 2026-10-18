@@ -28,6 +28,8 @@ const report: ReportPayload = {
       failed: 1,
       blocked: 0,
       skipped: 0,
+      infraErrors: 0,
+      flaky: 0,
       screenshots: 1,
     },
   ],
@@ -71,6 +73,11 @@ describe("formatCsv", () => {
   it("quotes a value containing a comma or quote", () => {
     const { body } = formatCsv(report, [caseRow({ caseName: 'Total "42", not 43' })]);
     expect(body).toContain('"Total ""42"", not 43"');
+  });
+
+  it("stops a spreadsheet from evaluating a cell as a formula", () => {
+    const { body } = formatCsv(report, [caseRow({ caseName: "=HYPERLINK(\"http://evil.test\")" })]);
+    expect(body).toContain("'=HYPERLINK");
   });
 
   it("emits only the header for a module with no results", () => {

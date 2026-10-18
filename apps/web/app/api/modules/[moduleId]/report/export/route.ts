@@ -148,6 +148,8 @@ async function buildReport(
       failed: byStatus("FAIL"),
       blocked: byStatus("BLOCKED"),
       skipped: byStatus("SKIP"),
+      infraErrors: byStatus("INFRA_ERROR"),
+      flaky: byStatus("FLAKY"),
       screenshots: own.filter((row) => row.screenshotKey !== null).length,
     };
   });

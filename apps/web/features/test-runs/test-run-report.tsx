@@ -32,6 +32,8 @@ export function TestRunReport({ run, module, results, onDownloadJson }: Props) {
   const failed = results.filter((row) => row.status === "FAIL").length;
   const blocked = results.filter((row) => row.status === "BLOCKED").length;
   const skipped = results.filter((row) => row.status === "SKIP").length;
+  const flaky = results.filter((row) => row.status === "FLAKY").length;
+  const infraErrors = results.filter((row) => row.status === "INFRA_ERROR").length;
   const withShot = results.filter((row) => row.screenshotUrl).length;
   // One gallery over every step screenshot in report order, so Next continues into the following case.
   const [galleryIndex, setGalleryIndex] = useState<number | null>(null);
@@ -68,6 +70,8 @@ export function TestRunReport({ run, module, results, onDownloadJson }: Props) {
         <Stat label="Failed" value={failed} tone="text-destructive" />
         <Stat label="Blocked" value={blocked} tone="text-muted-foreground" />
         <Stat label="Skipped" value={skipped} tone="text-warning" />
+        <Stat label="Flaky" value={flaky} tone="text-warning" />
+        <Stat label="Infra errors" value={infraErrors} tone="text-muted-foreground" />
         <Stat label="Pass rate" value={`${passRate(passed, results.length)}%`} />
         <Stat label="Evidence" value={`${withShot}/${results.length}`} />
       </section>

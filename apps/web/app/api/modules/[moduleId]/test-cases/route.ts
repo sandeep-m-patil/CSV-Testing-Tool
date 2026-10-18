@@ -1,7 +1,10 @@
 import { and, asc, eq, inArray } from "drizzle-orm";
-import { testCases } from "@repo/db/schema";
-import { BulkTestCaseStatusInputSchema } from "@repo/schemas";
-import { ok, parseBody, route } from "@/lib/api";
+import { modules, testCases } from "@repo/db/schema";
+import { AppError } from "@repo/core";
+import { BulkTestCaseStatusInputSchema, CreateTestCaseInputSchema, nextCaseCode } from "@repo/schemas";
+import { created, ok, parseBody, route } from "@/lib/api";
+import { rethrowDuplicate } from "@/lib/credentials";
+import { assertDatasetInModule, statusAfterEdit } from "@/lib/test-cases/status";
 import { assertSameOrigin } from "@/lib/csrf";
 import { requireSession } from "@/lib/auth/get-session";
 import { requireModuleAccess } from "@/lib/auth/guards";
@@ -47,4 +50,33 @@ export const PATCH = route(async (request, context: Params) => {
     .where(and(...filters))
     .returning({ id: testCases.id });
   return ok({ updated: updated.length });
+});
+
+
+/** A hand-written case. Without a checkable VERIFY step it is created as NEEDS_REVIEW and never runs. */
+export const POST = route(async (request, context: Params) => {
+  assertSameOrigin(request);
+  const session = await requireSession();
+  const moduleId = (await context.params)["moduleId"]!;
+  await requireModuleAccess(moduleId, session);
+  const input = CreateTestCaseInputSchema.parse(await parseBody(request));
+  await assertDatasetInModule(input.datasetId, moduleId);
+
+  const [module] = await db.select({ name: modules.name }).from(modules).where(eq(modules.id, moduleId)).limit(1);
+  if (!module) throw new AppError("NOT_FOUND", "Module not found", 404);
+  const codes = await db.select({ code: testCases.code }).from(testCases).where(eq(testCases.moduleId, moduleId));
+
+  const [testCase] = await db
+    .insert(testCases)
+    .values({
+      ...input,
+      moduleId,
+      code: input.code ?? nextCaseCode(module.name, codes.map((row) => row.code)),
+      source: "manual",
+      status: statusAfterEdit(input.steps, "DRAFT"),
+      tags: input.tags ?? [],
+    })
+    .returning()
+    .catch(rethrowDuplicate("A test case with this Test ID"));
+  return created({ testCase });
 });

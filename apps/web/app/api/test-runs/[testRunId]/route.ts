@@ -33,6 +33,8 @@ export const GET = route(async (_request, context: Params) => {
       actualResult: testRunResults.actualResult,
       error: testRunResults.error,
       screenshotKey: testRunResults.screenshotKey,
+      traceKey: testRunResults.traceKey,
+      consoleErrors: testRunResults.consoleErrors,
       order: testRunResults.order,
       datasetId: testRunResults.datasetId,
       datasetRow: testRunResults.datasetRow,
@@ -82,7 +84,7 @@ export const DELETE = route(async (request, context: Params) => {
   // Final, per-attempt and per-step screenshots are all owned by the run.
   const screenshotKeys = evidenceKeysOf(
     await db
-      .select({ screenshotKey: testRunResults.screenshotKey, attempts: testRunResults.attempts, stepResults: testRunResults.stepResults })
+      .select({ screenshotKey: testRunResults.screenshotKey, traceKey: testRunResults.traceKey, attempts: testRunResults.attempts, stepResults: testRunResults.stepResults })
       .from(testRunResults)
       .where(eq(testRunResults.testRunId, run.id)),
   );

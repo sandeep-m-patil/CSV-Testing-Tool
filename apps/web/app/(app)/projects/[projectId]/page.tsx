@@ -21,6 +21,7 @@ import { ModuleForm } from "@/features/modules/module-form";
 import { CredentialsCard } from "@/features/projects/credentials-card";
 import { EnvironmentsCard } from "@/features/projects/environments-card";
 import { RolesCard } from "@/features/projects/roles-card";
+import { TestAuthorizationCard } from "@/features/projects/test-authorization-card";
 import { ProjectRunsCard } from "@/features/test-runs/project-runs-card";
 import { RunAllButton } from "@/features/test-runs/run-all-button";
 
@@ -72,6 +73,8 @@ export default function ProjectDetailPage() {
           </>
         }
       />
+
+      <TestAuthorizationCard project={project} />
 
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
         <StatCard label="Modules" value={modules.length} icon={<Layers />} hint="Areas of the app under test" />

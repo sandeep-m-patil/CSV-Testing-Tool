@@ -17,6 +17,8 @@ const COUNTER: Record<ResultStatus, keyof typeof testRuns.$inferSelect> = {
   FAIL: "failedCases",
   BLOCKED: "blockedCases",
   SKIP: "skippedCases",
+  INFRA_ERROR: "infraErrorCases",
+  FLAKY: "flakyCases",
 };
 
 export async function recordResult(db: Db, input: { testRunId: string; browser: string; order: number; planned: PlannedCase; result: CaseResult }): Promise<void> {
@@ -36,6 +38,8 @@ export async function recordResult(db: Db, input: { testRunId: string; browser: 
     actualResult: outcome.actualResult,
     error: outcome.error,
     screenshotKey: outcome.screenshotKey,
+    traceKey: lastTrace(result),
+    consoleErrors: outcome.consoleErrors,
     attempts: result.attempts,
     attemptCount: result.attempts.length,
     stepResults: outcome.steps,
@@ -54,11 +58,16 @@ export async function recordResult(db: Db, input: { testRunId: string; browser: 
   );
 }
 
+/** A FLAKY case's useful trace is the failed attempt's; the final pass recorded none. */
+function lastTrace(result: CaseResult): string | null {
+  return result.outcome.traceKey ?? result.attempts.map((attempt) => attempt.traceKey ?? null).filter(Boolean).pop() ?? null;
+}
+
 export async function startRun(db: Db, testRunId: string, total: number): Promise<void> {
   await withDbRetry(() =>
     db
       .update(testRuns)
-      .set({ status: "RUNNING", startedAt: new Date(), totalCases: total, passedCases: 0, failedCases: 0, skippedCases: 0, blockedCases: 0 })
+      .set({ status: "RUNNING", startedAt: new Date(), totalCases: total, passedCases: 0, failedCases: 0, skippedCases: 0, blockedCases: 0, infraErrorCases: 0, flakyCases: 0 })
       .where(eq(testRuns.id, testRunId)),
   );
 }

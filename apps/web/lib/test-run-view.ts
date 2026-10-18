@@ -31,6 +31,7 @@ interface ResultRow {
   order: number;
   code: string | null;
   screenshotKey: string | null;
+  traceKey: string | null;
   attempts: unknown;
   stepResults: unknown;
 }
@@ -41,17 +42,22 @@ export function presentResult<T extends ResultRow>(row: T) {
     ...row,
     code: row.code ?? `TC-${String(row.order + 1).padStart(4, "0")}`,
     screenshotUrl: url(row.screenshotKey),
+    traceUrl: url(row.traceKey),
     attempts: parseList(AttemptRecordSchema, row.attempts).map((attempt): AttemptView => ({ ...attempt, screenshotUrl: url(attempt.screenshotKey) })),
     stepResults: parseList(StepResultSchema, row.stepResults).map((step): StepView => ({ ...step, screenshotUrl: url(step.screenshotKey) })),
   };
 }
 
-/** Every screenshot a run owns: final, per attempt, per step. Used when the run is deleted. */
-export function evidenceKeysOf(rows: Array<Pick<ResultRow, "screenshotKey" | "attempts" | "stepResults">>): string[] {
+/** Every evidence file a run owns: screenshots (final, per attempt, per step) and traces. Used when the run is deleted. */
+export function evidenceKeysOf(rows: Array<Pick<ResultRow, "screenshotKey" | "traceKey" | "attempts" | "stepResults">>): string[] {
   const keys = new Set<string>();
   for (const row of rows) {
     if (row.screenshotKey) keys.add(row.screenshotKey);
-    for (const attempt of parseList(AttemptRecordSchema, row.attempts)) if (attempt.screenshotKey) keys.add(attempt.screenshotKey);
+    if (row.traceKey) keys.add(row.traceKey);
+    for (const attempt of parseList(AttemptRecordSchema, row.attempts)) {
+      if (attempt.screenshotKey) keys.add(attempt.screenshotKey);
+      if (attempt.traceKey) keys.add(attempt.traceKey);
+    }
     for (const step of parseList(StepResultSchema, row.stepResults)) if (step.screenshotKey) keys.add(step.screenshotKey);
   }
   return [...keys];

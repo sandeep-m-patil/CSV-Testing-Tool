@@ -1,3 +1,4 @@
+import { RERUNNABLE_STATUSES } from "@repo/schemas";
 import { getDb, type QueueJob } from "@repo/db";
 import { createChildLogger, type TestRunJobData } from "@repo/core";
 import { getWorkerStorage } from "../storage";
@@ -83,7 +84,7 @@ async function executePlan(plan: RunPlan, ids: { testRunId: string; moduleId: st
       const result = await runCaseWithRetries({ ...ctx, credential }, { ...planned.executable, storageState }, plan.options.retries);
       await recordResult(db, { testRunId: ids.testRunId, browser: plan.options.browser, order, planned, result });
       log.info({ ...ids, case: planned.executable.name, row: planned.expanded.datasetRow, status: result.outcome.status, attempts: result.attempts.length }, "test case finished");
-      return { shouldStop: plan.options.failFast && (result.outcome.status === "FAIL" || result.outcome.status === "BLOCKED") };
+      return { shouldStop: plan.options.failFast && RERUNNABLE_STATUSES.includes(result.outcome.status) };
     });
   } finally {
     await browser.close().catch(() => undefined);

@@ -3,7 +3,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { apiFetch } from "@/lib/api-client";
 import { queryKeys } from "@/lib/query-keys";
-import type { Project } from "@repo/schemas";
+import type { ExecutableStep, Project, ResultStatus } from "@repo/schemas";
 import type { Module } from "@repo/schemas";
 import type { AttemptView, StepView } from "@/lib/test-run-view";
 
@@ -186,7 +186,12 @@ export interface TestCaseRecord {
   source: string;
   role: string | null;
   precondition: string | null;
-  steps: Array<{ order: number; action: string; target: string; value?: string; type?: string }>;
+  testData: string | null;
+  expectedResult: string | null;
+  severity: string | null;
+  tags: string[];
+  datasetId: string | null;
+  steps: ExecutableStep[];
 }
 
 export function useTestCases(moduleId: string) {
@@ -210,6 +215,8 @@ export interface TestRunSummary {
   failedCases: number;
   skippedCases: number;
   blockedCases: number;
+  infraErrorCases: number;
+  flakyCases: number;
   browser: string;
   workers: number;
   retries: number;
@@ -247,7 +254,7 @@ export function useTestRuns(moduleId: string) {
 export interface TestRunResultRecord {
   id: string;
   testCaseId: string;
-  status: "PASS" | "FAIL" | "BLOCKED" | "SKIP";
+  status: ResultStatus;
   durationMs: number | null;
   testData: string | null;
   expectedResult: string | null;
@@ -255,6 +262,10 @@ export interface TestRunResultRecord {
   error: string | null;
   screenshotKey: string | null;
   screenshotUrl: string | null;
+  /** Download link for the Playwright trace of a failed, credential-free attempt. */
+  traceUrl: string | null;
+  /** Browser console and uncaught page errors seen during the case. */
+  consoleErrors: string[];
   order: number;
   /** Set when this result came from one row of a CSV dataset bound to the case. */
   datasetId: string | null;

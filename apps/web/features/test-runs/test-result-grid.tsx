@@ -6,6 +6,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import type { TestRunResultRecord, TestRunSummary } from "@/features/hooks";
 import { CaseSteps, stepEvidenceItems } from "./case-steps";
+import { FailureDiagnostics } from "./failure-diagnostics";
 import { Pagination, usePagination } from "./pagination";
 import { EvidenceViewer, type EvidenceItem } from "@/components/ui/evidence-viewer";
 import { STATUS_FILTERS, Stat, StatusBadge, StatusIcon, passRate, type StatusFilter } from "./status";
@@ -16,12 +17,14 @@ const COLUMN_COUNT = 8;
 export function RunTotals({ run }: { run: TestRunSummary }) {
   return (
     <div className="space-y-2">
-      <div className="grid grid-cols-2 gap-3 sm:grid-cols-6">
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-4 lg:grid-cols-8">
         <Stat label="Total" value={run.totalCases} />
         <Stat label="Passed" value={run.passedCases} tone="text-success" />
         <Stat label="Failed" value={run.failedCases} tone="text-destructive" />
         <Stat label="Blocked" value={run.blockedCases} tone="text-muted-foreground" />
         <Stat label="Skipped" value={run.skippedCases} tone="text-warning" />
+        <Stat label="Flaky" value={run.flakyCases} tone="text-warning" />
+        <Stat label="Infra errors" value={run.infraErrorCases} tone="text-muted-foreground" />
         <Stat label="Pass rate" value={`${passRate(run.passedCases, run.totalCases)}%`} />
       </div>
       <RunMeta run={run} />
@@ -92,7 +95,8 @@ export function TestResultGrid({ results }: { results: TestRunResultRecord[] }) 
                 />
                 {expanded === row.id && (
                   <tr className="border-b bg-muted/10">
-                    <td colSpan={COLUMN_COUNT} className="p-3">
+                    <td colSpan={COLUMN_COUNT} className="space-y-3 p-3">
+                      <FailureDiagnostics consoleErrors={row.consoleErrors ?? []} traceUrl={row.traceUrl} code={row.code} />
                       <CaseSteps steps={row.stepResults} attempts={row.attempts} onOpenStep={(index) => setGallery({ items: stepEvidenceItems(row.stepResults, row.code), index })} />
                     </td>
                   </tr>

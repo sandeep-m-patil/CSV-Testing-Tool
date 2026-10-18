@@ -1,8 +1,8 @@
 {
-  "name": "autotest-saas",
+  "name": "autotestcsv",
   "version": "0.1.0",
   "private": true,
-  "description": "Autonomous web application testing platform — Phase 1 (platform) + Phase 2 (discovery + test generation)",
+  "description": "AutoTestCSV — autonomous website intelligence and testing platform",
   "packageManager": "pnpm@9.12.0",
   "engines": {
     "node": ">=20.0.0"

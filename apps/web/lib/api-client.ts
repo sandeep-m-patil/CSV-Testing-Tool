@@ -17,6 +17,7 @@ export async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> 
       payload?.error?.message ?? `Request failed (${response.status})`,
       response.status,
       payload?.error?.code ?? "REQUEST_FAILED",
+      payload?.error?.details,
     );
   }
 
@@ -36,18 +37,21 @@ async function readJson(response: Response): Promise<Envelope | null> {
 
 interface Envelope {
   data?: unknown;
-  error?: { message?: string; code?: string };
+  error?: { message?: string; code?: string; details?: unknown };
 }
 
 export class ApiError extends Error {
   readonly status: number;
   readonly code: string;
+  /** Structured detail the API attached, e.g. per-row errors of a rejected CSV import. */
+  readonly details: unknown;
 
-  constructor(message: string, status: number, code: string) {
+  constructor(message: string, status: number, code: string, details?: unknown) {
     super(message);
     this.name = "ApiError";
     this.status = status;
     this.code = code;
+    this.details = details;
   }
 }
 

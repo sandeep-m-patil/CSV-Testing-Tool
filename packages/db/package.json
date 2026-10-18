@@ -18,6 +18,7 @@
     "test": "vitest run --passWithNoTests"
   },
   "dependencies": {
+    "@repo/schemas": "workspace:^",
     "drizzle-kit": "^0.30.2",
     "drizzle-orm": "^0.38.2",
     "postgres": "^3.4.5",

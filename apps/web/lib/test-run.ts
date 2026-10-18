@@ -4,6 +4,7 @@ import { enqueueJob } from "@repo/db";
 import { AppError, TEST_RUN_ATTEMPTS, TEST_RUN_JOB_NAME, TEST_RUN_QUEUE } from "@repo/core";
 import type { StartTestRunInput } from "@repo/schemas";
 import { db } from "@/lib/db";
+import { assertTestingAuthorized } from "@/lib/test-authorization";
 
 /**
  * Creates a run row and queues it. Every call creates a new run: history is
@@ -68,6 +69,7 @@ async function resolveTargetUrl(projectId: string, environmentId: string | null)
   if (!project) throw new AppError("NOT_FOUND", "Project not found", 404);
   if (!environmentId) {
     if (project.environment === "production") throw productionBlocked();
+    assertTestingAuthorized(project, project.baseUrl);
     return project.baseUrl;
   }
   const [environment] = await db
@@ -78,6 +80,7 @@ async function resolveTargetUrl(projectId: string, environmentId: string | null)
   if (!environment) throw new AppError("NOT_FOUND", "Environment not found in this project", 404);
   if (environment.kind === "production") throw productionBlocked();
   if (!environment.isActive) throw new AppError("ENVIRONMENT_INACTIVE", "This environment is marked inactive", 409);
+  assertTestingAuthorized(project, environment.baseUrl);
   return environment.baseUrl;
 }
 

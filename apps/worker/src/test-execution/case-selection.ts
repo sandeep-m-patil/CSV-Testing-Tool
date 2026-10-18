@@ -3,13 +3,15 @@ import type { ResolvedCredential } from "../credentials";
 /**
  * Which cases a run executes, and as whom.
  *
- * REJECTED cases never run: a reviewer said they are wrong. When the module
+ * REJECTED cases never run: a reviewer said they are wrong. NEEDS_REVIEW cases
+ * never run either: they have no machine-checkable expected outcome, and
+ * running them would report a "pass" nobody verified. When the module
  * requires approval, only reviewed cases (APPROVED, READY) run, so AI-generated
  * drafts cannot reach a target until a human has looked at them.
  */
 
 const REVIEWED_STATUSES = new Set(["APPROVED", "READY"]);
-const EXCLUDED_STATUSES = new Set(["REJECTED"]);
+const EXCLUDED_STATUSES = new Set(["REJECTED", "NEEDS_REVIEW"]);
 
 export function isRunnable(status: string, requireApproval: boolean): boolean {
   if (EXCLUDED_STATUSES.has(status)) return false;

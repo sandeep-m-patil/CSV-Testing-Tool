@@ -2,6 +2,7 @@ import { eq } from "drizzle-orm";
 import { projects } from "@repo/db/schema";
 import { UpdateProjectInputSchema } from "@repo/schemas";
 import { AppError, safeUrlError } from "@repo/core";
+import { siteKey } from "@repo/schemas";
 import { ok, parseBody, route, noContent } from "@/lib/api";
 import { assertSameOrigin } from "@/lib/csrf";
 import { requireSession } from "@/lib/auth/get-session";
@@ -31,6 +32,11 @@ const projectId = routeParams['projectId']!;
   await requireProjectAccess(projectId, session);
 
   const input = UpdateProjectInputSchema.parse(await parseBody(request));
+  const [current] = await db.select({ authorizedHosts: projects.authorizedHosts }).from(projects).where(eq(projects.id, projectId)).limit(1);
+  // Authorization is per site: moving the project to a host nobody confirmed
+  // must not inherit the old confirmation.
+  const hostKey = input.baseUrl ? siteKey(input.baseUrl) : null;
+  const isNewHost = hostKey !== null && !(current?.authorizedHosts ?? []).includes(hostKey);
   if (input.baseUrl) {
     const reason = safeUrlError(input.baseUrl, { allowPrivateTargets: getEnv().ALLOW_PRIVATE_TARGETS });
     if (reason) {
@@ -46,6 +52,7 @@ const projectId = routeParams['projectId']!;
       baseUrl: input.baseUrl,
       environment: input.environment,
       productionConfirmed: input.productionConfirmed,
+      ...(isNewHost ? { authorizationConfirmedAt: null, authorizationConfirmedBy: null, authorizedHosts: [] } : {}),
       updatedAt: new Date(),
     })
     .where(eq(projects.id, projectId))

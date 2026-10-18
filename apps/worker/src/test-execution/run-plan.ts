@@ -1,12 +1,13 @@
 import { and, asc, eq, inArray } from "drizzle-orm";
 import type { Db } from "@repo/db";
 import { environments, modules, projects, testCases, testDataSets, testRunResults, testRuns } from "@repo/db/schema";
-import { RUN_BROWSERS, type RunBrowser, type TestDataSet } from "@repo/schemas";
+import { RERUNNABLE_STATUSES, RUN_BROWSERS, type RunBrowser, type TestDataSet } from "@repo/schemas";
 import type { ExecutableStep } from "./types";
 import type { ExecutableCase } from "./executor";
 import { applyValues, expandCases, indexDatasets, type CaseDraft, type DataDrivenCase } from "./data-driven";
 import { credentialFor, isRunnable } from "./case-selection";
 import { rebaseSteps, rebaseUrl } from "./environment-target";
+import { assertTestingAuthorized } from "../authorization";
 import { forEnvironment, loadModuleCredentials, type ResolvedCredential } from "../credentials";
 
 /**
@@ -40,7 +41,7 @@ export interface RunPlan {
   warnings: string[];
 }
 
-const FAILED_STATUSES = ["FAIL", "BLOCKED"];
+const FAILED_STATUSES = [...RERUNNABLE_STATUSES];
 
 export function resultKey(caseId: string, datasetRow: number | null | undefined): string {
   return `${caseId}:${datasetRow ?? "-"}`;
@@ -55,6 +56,7 @@ export async function loadRunPlan(db: Db, testRunId: string, moduleId: string): 
   const scoped = run.scope === "failed" && run.parentRunId ? await onlyPreviouslyFailed(db, run.parentRunId, cases) : cases;
   const credentials = forEnvironment(await loadModuleCredentials(db, moduleId), run.environmentId);
   const bases = await loadBases(db, moduleId, run.environmentId);
+  await assertTestingAuthorized(db, bases.projectId, bases.to ?? bases.from);
 
   return {
     options: toOptions(run),
@@ -101,6 +103,7 @@ function toOptions(run: typeof testRuns.$inferSelect): RunOptions {
 }
 
 interface Bases {
+  projectId: string;
   from: string;
   to: string | null;
   startUrl: string;
@@ -108,16 +111,17 @@ interface Bases {
 
 async function loadBases(db: Db, moduleId: string, environmentId: string | null): Promise<Bases> {
   const [row] = await db
-    .select({ baseUrl: projects.baseUrl, startPath: modules.startPath })
+    .select({ projectId: projects.id, baseUrl: projects.baseUrl, startPath: modules.startPath })
     .from(modules)
     .innerJoin(projects, eq(projects.id, modules.projectId))
     .where(eq(modules.id, moduleId))
     .limit(1);
-  const from = row?.baseUrl ?? "";
-  const startUrl = row?.startPath ? new URL(row.startPath, from).toString() : from;
-  if (!environmentId) return { from, to: null, startUrl };
+  if (!row) throw new Error(`Module ${moduleId} not found`);
+  const from = row.baseUrl;
+  const startUrl = row.startPath ? new URL(row.startPath, from).toString() : from;
+  if (!environmentId) return { projectId: row.projectId, from, to: null, startUrl };
   const [environment] = await db.select({ baseUrl: environments.baseUrl }).from(environments).where(eq(environments.id, environmentId)).limit(1);
-  return { from, to: environment?.baseUrl ?? null, startUrl };
+  return { projectId: row.projectId, from, to: environment?.baseUrl ?? null, startUrl };
 }
 
 async function loadCases(db: Db, moduleId: string): Promise<CaseDraft[]> {

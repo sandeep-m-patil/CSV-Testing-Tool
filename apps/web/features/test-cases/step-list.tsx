@@ -1,3 +1,4 @@
+import { formatExpectation, type Expectation } from "@repo/schemas";
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
 import { formatStepValue } from "@/lib/test-cases/step-display";
@@ -9,6 +10,8 @@ export interface DisplayStep {
   value?: string;
   optional?: boolean;
   type?: string;
+  /** What a VERIFY step checks; shown instead of its page URL. */
+  expect?: Expectation;
 }
 
 /**
@@ -30,7 +33,7 @@ export function StepList({ steps }: { steps: DisplayStep[] }) {
             <code className="rounded border bg-muted/60 px-1.5 py-0.5 font-mono text-[11px] font-medium uppercase tracking-wide text-foreground/90">
               {step.action}
             </code>{" "}
-            <span className="font-mono text-xs text-muted-foreground">{step.target}</span>
+            <span className="font-mono text-xs text-muted-foreground">{step.expect ? formatExpectation(step.expect) : step.target}</span>
             {step.value !== undefined && (
               <span className="text-xs text-muted-foreground">
                 {" "}

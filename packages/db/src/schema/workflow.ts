@@ -83,6 +83,9 @@ export const testCases = pgTable(
      * per row, substituting `{{column}}` tokens in step values.
      */
     datasetId: uuid("dataset_id").references(() => testDataSets.id, { onDelete: "set null" }),
+    /** How bad a failure would be (LOW..CRITICAL); priority is how soon to run it. */
+    severity: varchar("severity", { length: 16 }),
+    tags: jsonb("tags").$type<string[]>().notNull().default([]),
     steps: jsonb("steps").notNull().default([]),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
@@ -153,6 +156,8 @@ export const testRuns = pgTable(
     scope: varchar("scope", { length: 16 }).notNull().default("all"),
     parentRunId: uuid("parent_run_id").references((): AnyPgColumn => testRuns.id, { onDelete: "set null" }),
     blockedCases: integer("blocked_cases").notNull().default(0),
+    infraErrorCases: integer("infra_error_cases").notNull().default(0),
+    flakyCases: integer("flaky_cases").notNull().default(0),
     durationMs: integer("duration_ms"),
     startedAt: timestamp("started_at", { withTimezone: true }),
     completedAt: timestamp("completed_at", { withTimezone: true }),
@@ -190,6 +195,10 @@ export const testRunResults = pgTable(
     actualResult: text("actual_result"),
     error: text("error"),
     screenshotKey: text("screenshot_key"),
+    /** Playwright trace (trace.zip) of a failing attempt; open with `npx playwright show-trace`. */
+    traceKey: text("trace_key"),
+    /** Browser console errors and uncaught page errors seen while the case ran. */
+    consoleErrors: jsonb("console_errors").$type<string[]>().notNull().default([]),
     /** Every attempt of this case/row: [{ attempt, status, error, durationMs, screenshotKey }]. */
     attempts: jsonb("attempts").$type<unknown[]>().notNull().default([]),
     attemptCount: integer("attempt_count").notNull().default(1),

@@ -25,6 +25,8 @@ export interface ReportRun {
   failed: number;
   blocked: number;
   skipped: number;
+  infraErrors: number;
+  flaky: number;
   screenshots: number;
 }
 
@@ -50,9 +52,11 @@ function escapeHtml(value: string): string {
   return escapeXml(value);
 }
 
+/** Cells a spreadsheet would evaluate as a formula get an apostrophe, so an exported error message can never run as one. */
 function escapeCsv(value: string | number): string {
-  const text = String(value);
-  return /[",\n]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
+  const raw = String(value);
+  const text = /^[=+\-@\t\r]/.test(raw) ? `'${raw}` : raw;
+  return /[",\n\r]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
 }
 
 export function formatJson(report: ReportPayload): { body: string; contentType: string } {
@@ -109,8 +113,9 @@ export interface ReportCaseRow {
   screenshotKey: string | null;
 }
 
+/** FLAKY did pass; INFRA_ERROR, like BLOCKED, says nothing about the application. */
 function junitStatus(status: string): "passed" | "failed" | "skipped" {
-  if (status === "PASS") return "passed";
+  if (status === "PASS" || status === "FLAKY") return "passed";
   if (status === "FAIL") return "failed";
   return "skipped";
 }

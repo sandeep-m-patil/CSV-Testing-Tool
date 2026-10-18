@@ -1,3 +1,4 @@
+import { RERUNNABLE_STATUSES } from "@repo/schemas";
 import { and, count, eq, inArray } from "drizzle-orm";
 import { modules, testRunResults, testRuns } from "@repo/db/schema";
 import { AppError } from "@repo/core";
@@ -29,8 +30,8 @@ export const POST = route(async (request, context: Params) => {
   const [failed] = await db
     .select({ total: count() })
     .from(testRunResults)
-    .where(and(eq(testRunResults.testRunId, parent.id), inArray(testRunResults.status, ["FAIL", "BLOCKED"])));
-  if (!failed || failed.total === 0) throw new AppError("NOTHING_TO_RERUN", "This run has no failed or blocked results", 409);
+    .where(and(eq(testRunResults.testRunId, parent.id), inArray(testRunResults.status, [...RERUNNABLE_STATUSES])));
+  if (!failed || failed.total === 0) throw new AppError("NOTHING_TO_RERUN", "This run has no failed, blocked or infrastructure-error results", 409);
 
   const newRunId = await enqueueTestRun({
     moduleId: parent.moduleId,

@@ -14,7 +14,7 @@ type ReviewStatus = "APPROVED" | "REJECTED" | "DRAFT";
 export function reviewStatusVariant(status: string): "success" | "destructive" | "warning" | "muted" {
   if (status === "APPROVED" || status === "READY") return "success";
   if (status === "REJECTED") return "destructive";
-  if (status === "DRAFT") return "warning";
+  if (status === "DRAFT" || status === "NEEDS_REVIEW") return "warning";
   return "muted";
 }
 
@@ -39,9 +39,11 @@ export function CaseReviewActions({ moduleId, testId, status }: { moduleId: stri
 
   return (
     <div className="flex shrink-0 items-center gap-2">
-      <Badge variant={reviewStatusVariant(status)}>{status.toLowerCase()}</Badge>
+      <Badge variant={reviewStatusVariant(status)} title={status === "NEEDS_REVIEW" ? "No checkable expected outcome yet; add a VERIFY step" : undefined}>
+        {status.toLowerCase().replace("_", " ")}
+      </Badge>
       <div role="group" aria-label="Review" className="flex items-center rounded-md border bg-background/40 p-0.5">
-        {status !== "APPROVED" && (
+        {status !== "APPROVED" && status !== "NEEDS_REVIEW" && (
           <Button variant="ghost" size="iconSm" className="h-7 w-7 hover:bg-success/10 hover:text-success" aria-label="Approve" title="Approve" onClick={() => apply("APPROVED", "Case approved")}>
             <Check className="h-4 w-4 text-success" />
           </Button>
@@ -51,7 +53,7 @@ export function CaseReviewActions({ moduleId, testId, status }: { moduleId: stri
             <X className="h-4 w-4 text-destructive" />
           </Button>
         )}
-        {status !== "DRAFT" && (
+        {status !== "DRAFT" && status !== "NEEDS_REVIEW" && (
           <Button variant="ghost" size="iconSm" className="h-7 w-7" aria-label="Back to draft" title="Back to draft" onClick={() => apply("DRAFT", "Case returned to draft")}>
             <RotateCcw className="h-4 w-4 text-muted-foreground" />
           </Button>

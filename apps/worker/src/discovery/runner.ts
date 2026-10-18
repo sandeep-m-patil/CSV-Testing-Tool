@@ -22,6 +22,7 @@ import { createPageAgent } from "../browser-agent/factory";
 import { attemptAgentLogin, confirmLoginWithAgent, hasPasswordField, isIrreversibleByAgent, shouldLoginWithAgent } from "./ai-assist";
 import { loadModuleCredentials, secretsOf, type ResolvedCredential } from "../credentials";
 import { displayFillValue } from "./display-value";
+import { assertTestingAuthorized } from "../authorization";
 import { openStartPage, returnTo, settlePage, StartPageError } from "./navigation";
 
 /** Typed values for logs and captions, with credentials masked. */
@@ -83,6 +84,7 @@ export async function runDiscovery(input: RunInput): Promise<void> {
 
     const [project] = await db.select().from(projects).where(eq(projects.id, projectId)).limit(1);
     if (!project) throw new Error("Project not found");
+    await assertTestingAuthorized(db, projectId, project.baseUrl);
 
     const dataSets = await db.select().from(testDataSets).where(eq(testDataSets.moduleId, moduleId));
     const decoded = (await loadModuleCredentials(db, moduleId)).filter((credential) => !input.role || credential.role === input.role);
